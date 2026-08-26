@@ -326,6 +326,35 @@ fi
 
 # ----------------------------------------------------------------- manual ---
 
+# Commit identity is machine state, not repository state, so this only ever
+# reports and offers — it must never quietly rewrite ~/.gitconfig as a side
+# effect of someone asking to configure a repo. The offer is opt-in and says
+# out loud that it reaches beyond this repository.
+if [ "$in_worktree" = true ]; then
+  commit_email="$(git -C "$root" config user.email 2>/dev/null || true)"
+  gh_user="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || true)"
+
+  if [ -z "$commit_email" ]; then
+    head2 "Commit identity"
+    warn "No git user.email is set — commits from here will fail."
+    [ -n "$gh_user" ] && printf '    git config --global user.email "%s"\n' "$gh_user"
+  elif [ -n "$gh_user" ] && [ "$commit_email" != "$gh_user" ] \
+       && [ "${commit_email%@users.noreply.github.com}" = "$commit_email" ]; then
+    head2 "Commit identity"
+    warn "Commits here are authored as $commit_email"
+    printf '  %sThat address is written into every commit and is public forever in a\n' "$DIM"
+    printf '  public repo. GitHub can attribute commits to you without it.%s\n' "$RESET"
+    if [ "$DRY_RUN" = false ] && ask_yn "Use your GitHub noreply address instead? (changes this machine, not just this repo)" "n"; then
+      git config --global user.email "$gh_user"
+      ok "Set globally to $gh_user"
+      printf '  → also tick Settings → Emails → "Block command line pushes that\n'
+      printf '    expose my email", so a new machine cannot silently undo this.\n'
+    else
+      printf '    git config --global user.email "%s"\n' "$gh_user"
+    fi
+  fi
+fi
+
 head2 "Still needs you"
 
 desc="$(printf '%s' "$before" | jq -r '.description // ""')"
