@@ -47,10 +47,17 @@ record rather than a label on a discussion.
 
 **Branch cleanup.** Whether merged branches delete themselves.
 
-**Branch protection.** Off by default, because it behaves differently on public and private repos
-and a misconfigured rule can lock a solo maintainer out of their own default branch. When enabled,
-it requires a pull request and an up-to-date branch but *no* reviewers — on a solo repo you can't
-approve your own PR, so requiring one review makes the branch unmergeable.
+**Branch protection**, as a ruleset. Off by default, because a misconfigured rule can lock a solo
+maintainer out of their own default branch. When enabled it requires a pull request but *no*
+reviewers — you can't approve your own PR, so requiring one would make the branch unmergeable — and
+blocks deletion and force-pushes. It asks for the name of a status check to require, since a fresh
+repo has none and requiring a context that never reports leaves the branch stuck.
+
+It also asks whether repository admins may bypass it. Worth answering deliberately: with bypass the
+rule is a guardrail you can step over, and `git push` to a protected branch will succeed while
+printing what looks like a rejection. Note that a ruleset-protected branch returns 404 from the
+classic `/branches/*/protection` endpoint, so checking protection the old way reports "not
+protected".
 
 **Agent instruction files.** `AGENTS.md`, a `CLAUDE.md` that imports it, the Claude Code GitHub
 workflow, and `.gitignore` entries for agent-local files. Each is asked about separately and

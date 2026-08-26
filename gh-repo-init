@@ -185,10 +185,26 @@ fi
 
 head2 "Branch protection"
 protect=false
-if ask_yn "Require a pull request and passing checks on $default_branch?" "n"; then
+admin_bypass=true
+required_check=""
+existing_ruleset="$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.target=="branch") | .name' 2>/dev/null | head -1)"
+
+if [ -n "$existing_ruleset" ]; then
+  skip "A branch ruleset already exists (\"$existing_ruleset\") — leaving it alone"
+elif ask_yn "Require a pull request to land on $default_branch?" "n"; then
   protect=true
   printf '  %sNo required reviewers: on a solo repo you cannot approve your own\n' "$DIM"
   printf '  pull request, and requiring one would make the branch unmergeable.%s\n' "$RESET"
+
+  # Named rather than assumed. A fresh repo has no checks yet, and a ruleset
+  # requiring a context that never reports leaves the branch unmergeable.
+  required_check="$(ask_text "Name of a status check to require, if any (enter to skip)")"
+
+  # Worth asking rather than defaulting silently: with bypass the rule is a
+  # guardrail you can step over and may forget you did; without it, it applies
+  # to you too, and a one-line fix needs a pull request like anything else.
+  ask_yn "Let repository admins bypass it? (you, for the occasional direct push)" "y" \
+    || admin_bypass=false
 fi
 
 head2 "Agent instruction files"
@@ -295,21 +311,47 @@ else
 fi
 
 if [ "$protect" = true ]; then
-  protection='{
-    "required_status_checks": {"strict": true, "contexts": []},
-    "enforce_admins": false,
-    "required_pull_request_reviews": null,
-    "restrictions": null,
-    "allow_force_pushes": false,
-    "allow_deletions": false
-  }'
+  # A ruleset rather than classic branch protection. Rulesets are where GitHub
+  # is putting new capability, they can name bypass actors explicitly, and the
+  # classic /branches/*/protection endpoint returns 404 for a branch a ruleset
+  # protects — which makes "is this branch protected?" easy to answer wrongly.
+  ruleset="$(jq -n \
+    --arg branch "$default_branch" \
+    --arg check "$required_check" \
+    --argjson bypass "$admin_bypass" '
+    {
+      name: "Protect \($branch)",
+      target: "branch",
+      enforcement: "active",
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+      bypass_actors: (if $bypass
+        then [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }]
+        else [] end),
+      rules: ([
+        { type: "deletion" },
+        { type: "non_fast_forward" },
+        { type: "pull_request", parameters: {
+            required_approving_review_count: 0,
+            dismiss_stale_reviews_on_push: false,
+            require_code_owner_review: false,
+            require_last_push_approval: false,
+            required_review_thread_resolution: false
+        }}
+      ] + (if $check == "" then [] else [
+        { type: "required_status_checks", parameters: {
+            strict_required_status_checks_policy: true,
+            required_status_checks: [{ context: $check }]
+        }}
+      ] end))
+    }')"
+
   if [ "$DRY_RUN" = true ]; then
-    ok "would protect $default_branch"
-  elif printf '%s' "$protection" \
-      | gh api -X PUT "repos/$REPO/branches/$default_branch/protection" --input - >/dev/null 2>&1; then
-    ok "Protected $default_branch"
+    ok "would add a ruleset protecting $default_branch"
+  elif printf '%s' "$ruleset" | gh api -X POST "repos/$REPO/rulesets" --input - >/dev/null 2>&1; then
+    ok "Added a ruleset protecting $default_branch"
+    [ "$admin_bypass" = true ] && printf '  %sAdmins can bypass it, so your own direct pushes still land.%s\n' "$DIM" "$RESET"
   else
-    warn "Could not set branch protection — private repos need GitHub Pro."
+    warn "Could not add the ruleset — private repos need a paid plan for this."
   fi
 fi
 
