@@ -1,0 +1,334 @@
+#!/usr/bin/env bash
+#
+# gh-repo-init — walk a GitHub repository up to a consistent baseline.
+#
+# GitHub has no account-level or template-level defaults for merge behaviour,
+# so every new repo starts on stock settings and every maintainer re-picks the
+# same handful of options by hand. This asks once and applies the answers.
+#
+# Interactive by default. Pass --yes to take the recommended answer to every
+# question, which is also what happens when stdin is not a terminal.
+
+set -euo pipefail
+
+VERSION="0.1.0"
+EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+REPO=""
+DRY_RUN=false
+ASSUME_YES=false
+
+# ---------------------------------------------------------------- output ---
+
+if [ -t 1 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
+  BLUE=$'\033[34m'; RED=$'\033[31m'; RESET=$'\033[0m'
+else
+  BOLD=""; DIM=""; GREEN=""; YELLOW=""; BLUE=""; RED=""; RESET=""
+fi
+
+ok()   { printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
+skip() { printf '  %s·%s %s%s%s\n' "$DIM" "$RESET" "$DIM" "$*" "$RESET"; }
+warn() { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$*"; }
+die()  { printf '%s✗%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+head2(){ printf '\n%s%s%s\n' "$BOLD" "$*" "$RESET"; }
+
+usage() {
+  cat <<EOF
+${BOLD}gh-repo-init${RESET} $VERSION — walk a GitHub repo up to a consistent baseline.
+
+${BOLD}USAGE${RESET}
+  gh repo-init [options]
+
+${BOLD}OPTIONS${RESET}
+  -R, --repo OWNER/NAME   Target repo. Defaults to the current directory's remote.
+  -y, --yes               Take the recommended answer to every question.
+      --dry-run           Show what would change; touch nothing.
+  -h, --help              Show this help.
+  -v, --version           Show version.
+
+${BOLD}WHAT IT ASKS ABOUT${RESET}
+  Merge strategy, what the squashed commit message is made of, whether merged
+  branches are deleted, branch protection, and which agent instruction files to
+  drop in. Anything already set the way you want is reported and skipped.
+
+${BOLD}NOTES${RESET}
+  Re-running is safe. Settings converge, and existing files are never
+  overwritten — a repo with an AGENTS.md already has one that says something
+  true about that project, which a template could only make worse.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -R|--repo)       REPO="${2:-}"; shift 2 ;;
+    -y|--yes)        ASSUME_YES=true; shift ;;
+    --dry-run)       DRY_RUN=true; shift ;;
+    -h|--help)       usage; exit 0 ;;
+    -v|--version)    printf '%s\n' "$VERSION"; exit 0 ;;
+    *)               die "Unknown option: $1 (try --help)" ;;
+  esac
+done
+
+# A non-interactive shell can't answer questions, and blocking on a read that
+# will never return is a worse failure than proceeding with the defaults.
+[ -t 0 ] || ASSUME_YES=true
+
+# --------------------------------------------------------------- prompts ---
+
+# ask_yn "question" default(y|n) -> exit status 0 for yes
+ask_yn() {
+  local q="$1" default="$2" hint reply
+  [ "$default" = "y" ] && hint="Y/n" || hint="y/N"
+  if [ "$ASSUME_YES" = true ]; then
+    [ "$default" = "y" ]
+    return
+  fi
+  printf '%s?%s %s %s[%s]%s ' "$BLUE" "$RESET" "$q" "$DIM" "$hint" "$RESET" >&2
+  read -r reply || reply=""
+  reply="${reply:-$default}"
+  case "$reply" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+# ask_choice "question" "default_value" "value:label" ... -> echoes chosen value
+ask_choice() {
+  local q="$1" default="$2"; shift 2
+  local -a values=() labels=()
+  local pair i reply
+  for pair in "$@"; do
+    values+=("${pair%%:*}")
+    labels+=("${pair#*:}")
+  done
+  if [ "$ASSUME_YES" = true ]; then
+    printf '%s' "$default"; return
+  fi
+  printf '\n%s?%s %s\n' "$BLUE" "$RESET" "$q" >&2
+  for i in "${!values[@]}"; do
+    if [ "${values[$i]}" = "$default" ]; then
+      printf '    %s) %s %s(recommended)%s\n' "$((i + 1))" "${labels[$i]}" "$DIM" "$RESET" >&2
+    else
+      printf '    %s) %s\n' "$((i + 1))" "${labels[$i]}" >&2
+    fi
+  done
+  printf '  choice %s[enter for recommended]%s ' "$DIM" "$RESET" >&2
+  read -r reply || reply=""
+  if [ -z "$reply" ]; then printf '%s' "$default"; return; fi
+  if [ "$reply" -ge 1 ] 2>/dev/null && [ "$reply" -le "${#values[@]}" ]; then
+    printf '%s' "${values[$((reply - 1))]}"
+  else
+    printf '%s' "$default"
+  fi
+}
+
+ask_text() {
+  local q="$1" reply
+  [ "$ASSUME_YES" = true ] && return
+  printf '%s?%s %s\n  ' "$BLUE" "$RESET" "$q" >&2
+  read -r reply || reply=""
+  printf '%s' "$reply"
+}
+
+# ----------------------------------------------------------- preflight ---
+
+command -v gh >/dev/null 2>&1 || die "The GitHub CLI (gh) is required: https://cli.github.com"
+command -v jq >/dev/null 2>&1 || die "jq is required: https://jqlang.github.io/jq/"
+gh auth status >/dev/null 2>&1 || die "Not signed in. Run: gh auth login"
+
+if [ -z "$REPO" ]; then
+  REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+  [ -n "$REPO" ] || die "No repo found here. Pass one with --repo OWNER/NAME."
+fi
+
+before="$(gh api "repos/$REPO" 2>/dev/null)" || die "Can't read $REPO. Check the name and your access."
+# Not `.[$k] // "unset"`: jq's // treats false the same as null, so every
+# setting that is legitimately false would read back as unset — and this tool
+# spends most of its time comparing booleans.
+get() {
+  printf '%s' "$before" \
+    | jq -r --arg k "$1" 'if has($k) and .[$k] != null then .[$k] else "unset" end'
+}
+
+visibility="$(get visibility)"
+default_branch="$(get default_branch)"
+
+printf '\n%s%s%s %s(%s, default branch %s)%s\n' \
+  "$BOLD" "$REPO" "$RESET" "$DIM" "$visibility" "$default_branch" "$RESET"
+[ "$DRY_RUN" = true ] && printf '%sDry run — nothing will be changed.%s\n' "$YELLOW" "$RESET"
+
+# ---------------------------------------------------------------- asking ---
+
+head2 "Merge strategy"
+printf '%sCurrently: merge=%s squash=%s rebase=%s%s\n' \
+  "$DIM" "$(get allow_merge_commit)" "$(get allow_squash_merge)" "$(get allow_rebase_merge)" "$RESET"
+
+strategy="$(ask_choice "How should pull requests land on $default_branch?" "squash-rebase" \
+  "squash-rebase:Squash by default, rebase available for branches worth keeping intact" \
+  "squash-only:Squash only — one commit per pull request, no exceptions" \
+  "all:Allow everything — merge commits, squash and rebase" \
+  "keep:Leave the merge strategy alone")"
+
+msg_style="keep"
+if [ "$strategy" != "keep" ]; then
+  msg_style="$(ask_choice "What should the squashed commit message be?" "title-only" \
+    "title-only:Pull request title only — a clean one-line history" \
+    "title-body:Pull request title and description — full context in git log" \
+    "keep:Leave the message format alone")"
+fi
+
+delete_branches=false
+if [ "$(get delete_branch_on_merge)" = "true" ]; then
+  skip "Merged branches are already deleted automatically"
+  delete_branches=true
+elif ask_yn "Delete branches automatically after merge?" "y"; then
+  delete_branches=true
+fi
+
+head2 "Branch protection"
+protect=false
+if ask_yn "Require a pull request and passing checks on $default_branch?" "n"; then
+  protect=true
+  printf '  %sNo required reviewers: on a solo repo you cannot approve your own\n' "$DIM"
+  printf '  pull request, and requiring one would make the branch unmergeable.%s\n' "$RESET"
+fi
+
+head2 "Agent instruction files"
+want_agents=false; want_claude=false; want_workflow=false; want_gitignore=false
+in_worktree=false
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  in_worktree=true
+  root="$(git rev-parse --show-toplevel)"
+  [ -e "$root/AGENTS.md" ] && skip "AGENTS.md exists, leaving it alone" \
+    || { ask_yn "Add a starter AGENTS.md?" "y" && want_agents=true; }
+  [ -e "$root/CLAUDE.md" ] && skip "CLAUDE.md exists, leaving it alone" \
+    || { ask_yn "Add a CLAUDE.md that imports AGENTS.md?" "y" && want_claude=true; }
+  [ -e "$root/.github/workflows/claude.yml" ] && skip "claude.yml exists, leaving it alone" \
+    || { ask_yn "Add the Claude Code GitHub workflow?" "n" && want_workflow=true; }
+  grep -q '.claude/settings.local.json' "$root/.gitignore" 2>/dev/null \
+    && skip ".gitignore already covers agent-local files" \
+    || { ask_yn "Add .gitignore entries for agent-local files?" "y" && want_gitignore=true; }
+else
+  warn "Not inside a git working tree — skipping files. Run from a clone to get them."
+fi
+
+# --------------------------------------------------------------- applying ---
+
+head2 "Applying"
+
+patch='{}'
+add() { patch="$(printf '%s' "$patch" | jq --arg k "$1" --argjson v "$2" '.[$k] = $v')"; }
+
+case "$strategy" in
+  squash-rebase) add allow_merge_commit false; add allow_squash_merge true;  add allow_rebase_merge true ;;
+  squash-only)   add allow_merge_commit false; add allow_squash_merge true;  add allow_rebase_merge false ;;
+  all)           add allow_merge_commit true;  add allow_squash_merge true;  add allow_rebase_merge true ;;
+esac
+
+case "$msg_style" in
+  title-only) add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"BLANK"'
+              add merge_commit_title '"PR_TITLE"';        add merge_commit_message '"BLANK"' ;;
+  title-body) add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"PR_BODY"'
+              add merge_commit_title '"PR_TITLE"';        add merge_commit_message '"PR_BODY"' ;;
+esac
+
+[ "$delete_branches" = true ] && add delete_branch_on_merge true
+
+if [ "$(printf '%s' "$patch" | jq 'length')" -gt 0 ]; then
+  printf '%s' "$patch" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' \
+    | while IFS=$'\t' read -r k v; do
+        was="$(get "$k")"
+        [ "$was" = "$v" ] && skip "$k already $v" || ok "$k  $was → $v"
+      done
+  if [ "$DRY_RUN" = false ]; then
+    printf '%s' "$patch" | gh api -X PATCH "repos/$REPO" --input - >/dev/null
+  fi
+else
+  skip "No settings changes requested"
+fi
+
+if [ "$protect" = true ]; then
+  protection='{
+    "required_status_checks": {"strict": true, "contexts": []},
+    "enforce_admins": false,
+    "required_pull_request_reviews": null,
+    "restrictions": null,
+    "allow_force_pushes": false,
+    "allow_deletions": false
+  }'
+  if [ "$DRY_RUN" = true ]; then
+    ok "would protect $default_branch"
+  elif printf '%s' "$protection" \
+      | gh api -X PUT "repos/$REPO/branches/$default_branch/protection" --input - >/dev/null 2>&1; then
+    ok "Protected $default_branch"
+  else
+    warn "Could not set branch protection — private repos need GitHub Pro."
+  fi
+fi
+
+if [ "$in_worktree" = true ]; then
+  place() {
+    local src="$EXT_DIR/$1" dest="$root/$2"
+    if [ "$DRY_RUN" = true ]; then ok "would create $2"; return; fi
+    mkdir -p "$(dirname "$dest")"; cp "$src" "$dest"; ok "created $2"
+  }
+  [ "$want_agents" = true ]   && place "templates/AGENTS.md" "AGENTS.md"
+  [ "$want_claude" = true ]   && place "templates/CLAUDE.md" "CLAUDE.md"
+  [ "$want_workflow" = true ] && place "templates/workflows/claude.yml" ".github/workflows/claude.yml"
+  if [ "$want_gitignore" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      ok "would append agent-local entries to .gitignore"
+    else
+      {
+        printf '\n# Agent tooling. AGENTS.md, CLAUDE.md and .claude/skills/ are shared and\n'
+        printf '# checked in. Per-machine settings are not.\n'
+        printf '.claude/settings.local.json\n'
+        printf 'CLAUDE.local.md\n'
+      } >> "$root/.gitignore"
+      ok "appended agent-local entries to .gitignore"
+    fi
+  fi
+fi
+
+# ----------------------------------------------------------------- manual ---
+
+head2 "Still needs you"
+
+desc="$(printf '%s' "$before" | jq -r '.description // ""')"
+topic_count="$(printf '%s' "$before" | jq -r '(.topics // []) | length')"
+
+if [ -n "$desc" ]; then
+  skip "description set"
+else
+  new_desc="$(ask_text "Repository description? (enter to skip)")"
+  if [ -n "$new_desc" ] && [ "$DRY_RUN" = false ]; then
+    gh repo edit "$REPO" --description "$new_desc" >/dev/null && ok "description set"
+  else
+    printf '  → gh repo edit %s --description "..."\n' "$REPO"
+  fi
+fi
+
+if [ "$topic_count" -gt 0 ]; then
+  skip "$topic_count topics set"
+else
+  new_topics="$(ask_text "Topics, comma separated? (enter to skip)")"
+  if [ -n "$new_topics" ] && [ "$DRY_RUN" = false ]; then
+    args=(); IFS=',' read -ra parts <<< "$new_topics"
+    for t in "${parts[@]}"; do
+      t="$(printf '%s' "$t" | tr -d '[:space:]')"
+      [ -n "$t" ] && args+=(--add-topic "$t")
+    done
+    [ "${#args[@]}" -gt 0 ] && gh repo edit "$REPO" "${args[@]}" >/dev/null && ok "topics set"
+  else
+    printf '  → gh repo edit %s --add-topic foo\n' "$REPO"
+  fi
+fi
+
+if [ "$want_agents" = true ]; then
+  printf '  → fill in AGENTS.md. The template is a skeleton on purpose: a generic\n'
+  printf '    one is worse than none, because it teaches an agent nothing while\n'
+  printf '    looking like it did.\n'
+fi
+if [ "$want_workflow" = true ]; then
+  printf '  → install the GitHub App and set CLAUDE_CODE_OAUTH_TOKEN:\n'
+  printf '    run /install-github-app in Claude Code.\n'
+fi
+echo

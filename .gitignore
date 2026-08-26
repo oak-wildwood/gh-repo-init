@@ -1,0 +1,6 @@
+.DS_Store
+
+# Agent tooling. AGENTS.md and CLAUDE.md are shared and checked in.
+# Per-machine settings are not.
+.claude/settings.local.json
+CLAUDE.local.md
