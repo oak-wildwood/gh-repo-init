@@ -223,23 +223,59 @@ case "$strategy" in
   all)           add allow_merge_commit true;  add allow_squash_merge true;  add allow_rebase_merge true ;;
 esac
 
+# GitHub rejects the whole PATCH with "you need to allow the merge commit
+# strategy in order to set the default merge commit message" if merge_commit_*
+# is sent while merge commits are off. Since the PATCH is atomic, that would
+# silently drop the squash settings too — so only send those fields when merge
+# commits will actually be enabled afterwards.
+merge_will_be_allowed=false
+case "$strategy" in
+  all)  merge_will_be_allowed=true ;;
+  keep) [ "$(get allow_merge_commit)" = "true" ] && merge_will_be_allowed=true ;;
+esac
+
 case "$msg_style" in
-  title-only) add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"BLANK"'
-              add merge_commit_title '"PR_TITLE"';        add merge_commit_message '"BLANK"' ;;
-  title-body) add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"PR_BODY"'
-              add merge_commit_title '"PR_TITLE"';        add merge_commit_message '"PR_BODY"' ;;
+  title-only)
+    add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"BLANK"'
+    if [ "$merge_will_be_allowed" = true ]; then
+      add merge_commit_title '"PR_TITLE"'; add merge_commit_message '"BLANK"'
+    fi ;;
+  title-body)
+    add squash_merge_commit_title '"PR_TITLE"'; add squash_merge_commit_message '"PR_BODY"'
+    if [ "$merge_will_be_allowed" = true ]; then
+      add merge_commit_title '"PR_TITLE"'; add merge_commit_message '"PR_BODY"'
+    fi ;;
 esac
 
 [ "$delete_branches" = true ] && add delete_branch_on_merge true
 
 if [ "$(printf '%s' "$patch" | jq 'length')" -gt 0 ]; then
-  printf '%s' "$patch" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' \
-    | while IFS=$'\t' read -r k v; do
-        was="$(get "$k")"
-        [ "$was" = "$v" ] && skip "$k already $v" || ok "$k  $was → $v"
+  changes=0
+  while IFS=$'\t' read -r k v; do
+    was="$(get "$k")"
+    if [ "$was" = "$v" ]; then
+      skip "$k already $v"
+    else
+      printf '  %s→%s %s  %s%s%s → %s%s%s\n' "$DIM" "$RESET" "$k" "$DIM" "$was" "$RESET" "$BOLD" "$v" "$RESET"
+      changes=$((changes + 1))
+    fi
+  done < <(printf '%s' "$patch" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+
+  if [ "$changes" -eq 0 ]; then
+    skip "Nothing to change"
+  elif [ "$DRY_RUN" = true ]; then
+    warn "Dry run — not applied"
+  else
+    # The PATCH is atomic: one rejected field drops every other change with it.
+    # Report the failure rather than leaving a tick that claims otherwise.
+    if err="$(printf '%s' "$patch" | gh api -X PATCH "repos/$REPO" --input - 2>&1 >/dev/null)"; then
+      ok "Applied $changes setting(s)"
+    else
+      printf '%s' "$err" | jq -r '.errors[]?.message // .message' 2>/dev/null | while read -r m; do
+        warn "$m"
       done
-  if [ "$DRY_RUN" = false ]; then
-    printf '%s' "$patch" | gh api -X PATCH "repos/$REPO" --input - >/dev/null
+      die "Settings were not applied — the request was rejected as a whole."
+    fi
   fi
 else
   skip "No settings changes requested"
