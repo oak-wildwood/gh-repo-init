@@ -56,6 +56,11 @@ approve your own PR, so requiring one review makes the branch unmergeable.
 workflow, and `.gitignore` entries for agent-local files. Each is asked about separately and
 skipped if already present.
 
+**A conventional-commit check on pull request titles.** Only offered when your earlier answers made
+the PR title the commit subject — under a merge commit, or a message format that keeps the branch
+commits, a wrong title is untidy rather than permanent, and a check nobody needs is just a red X
+people learn to ignore. Fifteen lines of `grep`, no third-party action to pin.
+
 ## Why there's no skill or plugin here
 
 The script asks its own questions in plain shell prompts, which works for everyone — whichever

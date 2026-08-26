@@ -193,6 +193,7 @@ fi
 
 head2 "Agent instruction files"
 want_agents=false; want_claude=false; want_workflow=false; want_gitignore=false
+want_prtitle=false
 in_worktree=false
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   in_worktree=true
@@ -203,6 +204,18 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     || { ask_yn "Add a CLAUDE.md that imports AGENTS.md?" "y" && want_claude=true; }
   [ -e "$root/.github/workflows/claude.yml" ] && skip "claude.yml exists, leaving it alone" \
     || { ask_yn "Add the Claude Code GitHub workflow?" "n" && want_workflow=true; }
+
+  # Only worth offering when the answers above made the pull request title the
+  # commit subject. Under a merge commit, or a message format that keeps the
+  # branch commits, a wrong title is untidy rather than permanent — and a check
+  # nobody needs is just a red X people learn to ignore.
+  if [ "$msg_style" = "title-only" ] || [ "$msg_style" = "title-body" ]; then
+    if [ -e "$root/.github/workflows/pr-title.yml" ]; then
+      skip "pr-title.yml exists, leaving it alone"
+    elif ask_yn "Enforce conventional commit PR titles with a check?" "y"; then
+      want_prtitle=true
+    fi
+  fi
   grep -q '.claude/settings.local.json' "$root/.gitignore" 2>/dev/null \
     && skip ".gitignore already covers agent-local files" \
     || { ask_yn "Add .gitignore entries for agent-local files?" "y" && want_gitignore=true; }
@@ -309,6 +322,7 @@ if [ "$in_worktree" = true ]; then
   [ "$want_agents" = true ]   && place "templates/AGENTS.md" "AGENTS.md"
   [ "$want_claude" = true ]   && place "templates/CLAUDE.md" "CLAUDE.md"
   [ "$want_workflow" = true ] && place "templates/workflows/claude.yml" ".github/workflows/claude.yml"
+  [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
   if [ "$want_gitignore" = true ]; then
     if [ "$DRY_RUN" = true ]; then
       ok "would append agent-local entries to .gitignore"
@@ -395,5 +409,10 @@ fi
 if [ "$want_workflow" = true ]; then
   printf '  → install the GitHub App and set CLAUDE_CODE_OAUTH_TOKEN:\n'
   printf '    run /install-github-app in Claude Code.\n'
+fi
+if [ "$want_prtitle" = true ]; then
+  printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'
+  printf '    chore. Edit TYPES in .github/workflows/pr-title.yml to change that,\n'
+  printf '    and say the same thing in AGENTS.md so the two agree.\n'
 fi
 echo
