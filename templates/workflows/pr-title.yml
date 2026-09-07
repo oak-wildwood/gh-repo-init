@@ -37,8 +37,10 @@ jobs:
             printf 'Expected: type: imperative summary\n'
             printf 'Types:    %s\n' "$(printf '%s' "$TYPES" | tr '|' ' ')"
             printf '\nFor example:\n'
-            printf '  feat: add per-week employer contact minimum\n'
-            printf '  fix: stop the week badge rendering on the printed sheet\n'
+            # Generic on purpose — this is a template. Swap these two for real
+            # examples from the project's own history once it has one.
+            printf '  feat: add dark mode toggle to settings\n'
+            printf '  fix: stop the sidebar overlapping the header on mobile\n'
             printf '\nSee AGENTS.md for what each type covers.\n'
             exit 1
           }
