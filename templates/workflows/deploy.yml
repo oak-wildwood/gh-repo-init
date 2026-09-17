@@ -1,0 +1,50 @@
+name: Deploy
+
+# Publishes main to GitHub Pages. PR previews are a separate concern — see
+# vercel.json / Vercel's GitHub integration if this repo also uses that.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Add a project-specific verification step here (typecheck, lint) before
+      # build if the repo has one — this template doesn't assume any exist.
+
+      - name: Build
+        run: npm run build
+
+      # Most bundlers emit no underscore-prefixed paths, but Jekyll silently
+      # drops any that show up later, so this is unconditional.
+      - name: Disable Jekyll
+        run: touch dist/.nojekyll
+
+      - name: Deploy to gh-pages root
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          clean: true
+          commit-message: "deploy: ${{ github.sha }}"
