@@ -49,8 +49,10 @@ ${BOLD}OPTIONS${RESET}
 
 ${BOLD}WHAT IT ASKS ABOUT${RESET}
   Merge strategy, what the squashed commit message is made of, whether merged
-  branches are deleted, branch protection, and which agent instruction files to
-  drop in. Anything already set the way you want is reported and skipped.
+  branches are deleted, branch protection, which agent instruction files to
+  drop in, and whether to scaffold a GitHub Pages deploy workflow and/or a
+  Vercel PR-preview config. Anything already set the way you want is reported
+  and skipped.
 
 ${BOLD}NOTES${RESET}
   Re-running is safe. Settings converge, and existing files are never
@@ -239,6 +241,21 @@ else
   warn "Not inside a git working tree — skipping files. Run from a clone to get them."
 fi
 
+head2 "Public site deploy"
+want_deploy=false; want_vercel=false
+if [ "$in_worktree" = true ]; then
+  if [ -e "$root/.github/workflows/deploy.yml" ]; then
+    skip "deploy.yml exists, leaving it alone"
+  elif [ ! -e "$root/package.json" ]; then
+    skip "no package.json found — skipping the GitHub Pages build workflow"
+  elif ask_yn "Add a GitHub Pages deploy workflow (build main, publish to gh-pages)?" "n"; then
+    want_deploy=true
+  fi
+
+  [ -e "$root/vercel.json" ] && skip "vercel.json exists, leaving it alone" \
+    || { ask_yn "Add a vercel.json for Vercel PR-preview deployments?" "n" && want_vercel=true; }
+fi
+
 # --------------------------------------------------------------- applying ---
 
 head2 "Applying"
@@ -365,6 +382,8 @@ if [ "$in_worktree" = true ]; then
   [ "$want_claude" = true ]   && place "templates/CLAUDE.md" "CLAUDE.md"
   [ "$want_workflow" = true ] && place "templates/workflows/claude.yml" ".github/workflows/claude.yml"
   [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
+  [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
+  [ "$want_vercel" = true ]   && place "templates/vercel.json" "vercel.json"
   if [ "$want_gitignore" = true ]; then
     if [ "$DRY_RUN" = true ]; then
       ok "would append agent-local entries to .gitignore"
@@ -456,5 +475,18 @@ if [ "$want_prtitle" = true ]; then
   printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'
   printf '    chore. Edit TYPES in .github/workflows/pr-title.yml to change that,\n'
   printf '    and say the same thing in AGENTS.md so the two agree.\n'
+fi
+if [ "$want_deploy" = true ]; then
+  printf '  → enable Pages: Settings → Pages → Source: Deploy from a branch →\n'
+  printf '    gh-pages. That branch does not exist until deploy.yml runs once\n'
+  printf '    (push to main, or trigger it by hand with workflow_dispatch).\n'
+  printf '    deploy.yml assumes `npm run build` emits to dist/ and triggers on\n'
+  printf '    a branch literally named "main" — edit both if this repo differs.\n'
+fi
+if [ "$want_vercel" = true ]; then
+  printf '  → connect this repo to a Vercel project (dashboard, or the GitHub\n'
+  printf '    App) — there is no gh/git equivalent for that step, an agent\n'
+  printf '    cannot do it, and PRs get no preview until it'"'"'s done.\n'
+  [ "$want_deploy" = true ] || printf '  → vercel.json disables Vercel'"'"'s own main-branch deploy on the\n    assumption something else (e.g. deploy.yml) owns production; delete\n    that block if Vercel should deploy main too.\n'
 fi
 echo
