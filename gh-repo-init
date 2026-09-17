@@ -248,7 +248,7 @@ if [ "$in_worktree" = true ]; then
     skip "deploy.yml exists, leaving it alone"
   elif [ ! -e "$root/package.json" ]; then
     skip "no package.json found — skipping the GitHub Pages build workflow"
-  elif ask_yn "Add a GitHub Pages deploy workflow (build main, publish to gh-pages)?" "n"; then
+  elif ask_yn "Add a GitHub Pages deploy workflow (build main, publish via GitHub Actions)?" "n"; then
     want_deploy=true
   fi
 
@@ -477,9 +477,10 @@ if [ "$want_prtitle" = true ]; then
   printf '    and say the same thing in AGENTS.md so the two agree.\n'
 fi
 if [ "$want_deploy" = true ]; then
-  printf '  → enable Pages: Settings → Pages → Source: Deploy from a branch →\n'
-  printf '    gh-pages. That branch does not exist until deploy.yml runs once\n'
-  printf '    (push to main, or trigger it by hand with workflow_dispatch).\n'
+  printf '  → enable Pages: Settings → Pages → Source: GitHub Actions. The\n'
+  printf '    first successful run of deploy.yml (push to main, or trigger it\n'
+  printf '    by hand with workflow_dispatch) is what actually publishes it —\n'
+  printf '    this setting alone does not deploy anything by itself.\n'
   printf '    deploy.yml assumes `npm run build` emits to dist/ and triggers on\n'
   printf '    a branch literally named "main" — edit both if this repo differs.\n'
 fi
