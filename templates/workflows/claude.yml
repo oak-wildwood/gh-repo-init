@@ -40,6 +40,21 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Determine model from trigger text
+        id: model
+        env:
+          TRIGGER_TEXT: >-
+            ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+        run: |
+          text=$(printf '%s' "$TRIGGER_TEXT" | tr '[:upper:]' '[:lower:]')
+          if echo "$text" | grep -qw "haiku"; then
+            echo "model=claude-haiku-4-5-20251001" >> "$GITHUB_OUTPUT"
+          elif echo "$text" | grep -qw "opus"; then
+            echo "model=claude-opus-5" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=claude-sonnet-5" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -49,18 +64,31 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Two things worth knowing, both learned the hard way:
+          # Three things worth knowing, all learned the hard way:
           #
-          # 1. Without a package manager in allowedTools the agent cannot run
+          # 1. Passing --allowedTools at all suppresses the action's default
+          #    Write/Edit grant instead of adding to it, despite what the docs
+          #    imply — confirmed 2026-09-17 when a real run had no Write/Edit
+          #    in its ALLOWED_TOOLS, could only Read/Glob/Grep, and died after
+          #    11 straight permission denials trying to create files. If you
+          #    specify --allowedTools, list Write and Edit explicitly or the
+          #    agent can look at your repo but can't change it.
+          #
+          # 2. Without a package manager in allowedTools the agent cannot run
           #    your tests, linter or formatter — so it writes code it has no
           #    way to check, and ships failures it would have caught in one
           #    command. Swap npm for whatever this project actually uses.
           #
-          # 2. By default the action pushes a branch and leaves a "Create PR"
+          # 3. By default the action pushes a branch and leaves a "Create PR"
           #    link rather than opening the pull request itself. Allowing
           #    `gh pr create` lets it finish the job when you ask it to.
-          claude_args: >-
-            --allowedTools "Bash(npm:*),Bash(npx:*),Bash(gh pr create:*),Bash(gh pr view:*)"
+          #
+          # Model is chosen dynamically by the "Determine model from trigger
+          # text" step above: mention "haiku" or "opus" in the triggering
+          # comment/issue to override the claude-sonnet-5 default.
+          claude_args: |
+            --model ${{ steps.model.outputs.model }}
+            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(gh pr create:*),Bash(gh pr view:*)"
           # The agent cannot edit files under .github/workflows/ — its token
           # lacks workflow-write permission. Expect it to stop and say so
           # rather than work around it; that restriction is deliberate.
