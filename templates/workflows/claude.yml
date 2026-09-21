@@ -83,12 +83,19 @@ jobs:
           #    link rather than opening the pull request itself. Allowing
           #    `gh pr create` lets it finish the job when you ask it to.
           #
+          # 4. Same override behavior as #1 also swallows git — without
+          #    explicit git entries Claude can edit files but never
+          #    branch/commit/push, so `gh pr create` has nothing to open a
+          #    PR from (confirmed 2026-09-21 in cooperage's nightly
+          #    workflow, which shares this allowlist pattern: a real run
+          #    edited nothing and never opened a PR).
+          #
           # Model is chosen dynamically by the "Determine model from trigger
           # text" step above: mention "haiku" or "opus" in the triggering
           # comment/issue to override the claude-sonnet-5 default.
           claude_args: |
             --model ${{ steps.model.outputs.model }}
-            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(gh pr create:*),Bash(gh pr view:*)"
+            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(gh pr create:*),Bash(gh pr view:*)"
           # The agent cannot edit files under .github/workflows/ — its token
           # lacks workflow-write permission. Expect it to stop and say so
           # rather than work around it; that restriction is deliberate.
