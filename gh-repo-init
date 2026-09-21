@@ -161,21 +161,60 @@ printf '\n%s%s%s %s(%s, default branch %s)%s\n' \
 # ---------------------------------------------------------------- asking ---
 
 head2 "Merge strategy"
+merge_commit="$(get allow_merge_commit)"
+squash_merge="$(get allow_squash_merge)"
+rebase_merge="$(get allow_rebase_merge)"
 printf '%sCurrently: merge=%s squash=%s rebase=%s%s\n' \
-  "$DIM" "$(get allow_merge_commit)" "$(get allow_squash_merge)" "$(get allow_rebase_merge)" "$RESET"
+  "$DIM" "$merge_commit" "$squash_merge" "$rebase_merge" "$RESET"
 
-strategy="$(ask_choice "How should pull requests land on $default_branch?" "squash-rebase" \
-  "squash-rebase:Squash by default, rebase available for branches worth keeping intact" \
-  "squash-only:Squash only — one commit per pull request, no exceptions" \
-  "all:Allow everything — merge commits, squash and rebase" \
-  "keep:Leave the merge strategy alone")"
+# Recognise the three presets this tool itself would set, so a re-run on a
+# repo it already converged doesn't re-ask a question whose answer is sitting
+# right there in the API response. A combination outside the three (hand-set,
+# or from a repo this tool never touched) is left for a real answer — this is
+# detection of this tool's own prior work, not a guess at intent.
+current_strategy=""
+if   [ "$merge_commit" = "false" ] && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "true" ]; then
+  current_strategy="squash-rebase"
+elif [ "$merge_commit" = "false" ] && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "false" ]; then
+  current_strategy="squash-only"
+elif [ "$merge_commit" = "true" ]  && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "true" ]; then
+  current_strategy="all"
+fi
+
+current_msg_style=""
+if   [ "$(get squash_merge_commit_title)" = "PR_TITLE" ] && [ "$(get squash_merge_commit_message)" = "BLANK" ]; then
+  current_msg_style="title-only"
+elif [ "$(get squash_merge_commit_title)" = "PR_TITLE" ] && [ "$(get squash_merge_commit_message)" = "PR_BODY" ]; then
+  current_msg_style="title-body"
+fi
+
+if [ -n "$current_strategy" ]; then
+  skip "Merge strategy already $current_strategy"
+  printf '    %sto change: gh repo edit %s --enable-merge-commit --enable-squash-merge --enable-rebase-merge (add =false to turn one off)%s\n' \
+    "$DIM" "$REPO" "$RESET"
+  strategy="$current_strategy"
+else
+  strategy="$(ask_choice "How should pull requests land on $default_branch?" "squash-rebase" \
+    "squash-rebase:Squash by default, rebase available for branches worth keeping intact" \
+    "squash-only:Squash only — one commit per pull request, no exceptions" \
+    "all:Allow everything — merge commits, squash and rebase" \
+    "keep:Leave the merge strategy alone")"
+fi
 
 msg_style="keep"
 if [ "$strategy" != "keep" ]; then
-  msg_style="$(ask_choice "What should the squashed commit message be?" "title-only" \
-    "title-only:Pull request title only — a clean one-line history" \
-    "title-body:Pull request title and description — full context in git log" \
-    "keep:Leave the message format alone")"
+  if [ -n "$current_msg_style" ]; then
+    skip "Commit message already $current_msg_style"
+    msg_flag="pr-title"; [ "$current_msg_style" = "title-body" ] && msg_flag="pr-title-description"
+    printf '    %sto change: gh repo edit %s --squash-merge-commit-message=%s%s\n' \
+      "$DIM" "$REPO" "$msg_flag" "$RESET"
+    msg_style="$current_msg_style"
+  else
+    msg_style="$(ask_choice "What should the squashed commit message be?" "title-only" \
+      "title-only:Pull request title only — a clean one-line history" \
+      "title-body:Pull request title and description — full context in git log" \
+      "keep:Leave the message format alone")"
+  fi
 fi
 
 delete_branches=false
