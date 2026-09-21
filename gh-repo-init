@@ -50,9 +50,10 @@ ${BOLD}OPTIONS${RESET}
 ${BOLD}WHAT IT ASKS ABOUT${RESET}
   Merge strategy, what the squashed commit message is made of, whether merged
   branches are deleted, branch protection, which agent instruction files to
-  drop in, and whether to scaffold a GitHub Pages deploy workflow and/or a
-  Vercel PR-preview config. Anything already set the way you want is reported
-  and skipped.
+  drop in, whether Claude should also pick up work unattended overnight, and
+  whether to scaffold a GitHub Pages deploy workflow and/or a Vercel
+  PR-preview config. Anything already set the way you want is reported and
+  skipped.
 
 ${BOLD}NOTES${RESET}
   Re-running is safe. Settings converge, and existing files are never
@@ -211,7 +212,7 @@ fi
 
 head2 "Agent instruction files"
 want_agents=false; want_claude=false; want_workflow=false; want_gitignore=false
-want_prtitle=false
+want_prtitle=false; want_nightly=false
 in_worktree=false
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   in_worktree=true
@@ -222,6 +223,16 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     || { ask_yn "Add a CLAUDE.md that imports AGENTS.md?" "y" && want_claude=true; }
   [ -e "$root/.github/workflows/claude.yml" ] && skip "claude.yml exists, leaving it alone" \
     || { ask_yn "Add the Claude Code GitHub workflow?" "n" && want_workflow=true; }
+
+  # Reuses claude.yml's GitHub App + CLAUDE_CODE_OAUTH_TOKEN, so there's no
+  # point asking when neither exists yet nor is about to.
+  if [ -e "$root/.github/workflows/claude-nightly.yml" ]; then
+    skip "claude-nightly.yml exists, leaving it alone"
+  elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
+    skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable the nightly cron"
+  elif ask_yn "Add a nightly cron that picks up claude-task issues unattended?" "n"; then
+    want_nightly=true
+  fi
 
   # Only worth offering when the answers above made the pull request title the
   # commit subject. Under a merge commit, or a message format that keeps the
@@ -372,6 +383,26 @@ if [ "$protect" = true ]; then
   fi
 fi
 
+if [ "$want_nightly" = true ]; then
+  # gh label create errors on a name that already exists, so this only ever
+  # adds what's missing — safe to run again on a repo that already has them.
+  existing_labels="$(gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null || true)"
+  create_label() {
+    local name="$1" desc="$2" color="$3"
+    if printf '%s\n' "$existing_labels" | grep -qx "$name"; then
+      skip "label \"$name\" already exists"
+    elif [ "$DRY_RUN" = true ]; then
+      ok "would create label \"$name\""
+    elif gh label create "$name" --repo "$REPO" --description "$desc" --color "$color" >/dev/null 2>&1; then
+      ok "created label \"$name\""
+    else
+      warn "could not create label \"$name\""
+    fi
+  }
+  create_label claude-task "Queued for unattended pickup by the nightly Claude cron" 5319e7
+  create_label claude-in-progress "Currently claimed by a running nightly Claude job" fbca04
+fi
+
 if [ "$in_worktree" = true ]; then
   place() {
     local src="$EXT_DIR/$1" dest="$root/$2"
@@ -381,6 +412,7 @@ if [ "$in_worktree" = true ]; then
   [ "$want_agents" = true ]   && place "templates/AGENTS.md" "AGENTS.md"
   [ "$want_claude" = true ]   && place "templates/CLAUDE.md" "CLAUDE.md"
   [ "$want_workflow" = true ] && place "templates/workflows/claude.yml" ".github/workflows/claude.yml"
+  [ "$want_nightly" = true ] && place "templates/workflows/claude-nightly.yml" ".github/workflows/claude-nightly.yml"
   [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
   [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
   [ "$want_vercel" = true ]   && place "templates/vercel.json" "vercel.json"
@@ -470,6 +502,13 @@ fi
 if [ "$want_workflow" = true ]; then
   printf '  → install the GitHub App and set CLAUDE_CODE_OAUTH_TOKEN:\n'
   printf '    run /install-github-app in Claude Code.\n'
+fi
+if [ "$want_nightly" = true ]; then
+  printf '  → claude-nightly.yml'"'"'s allowedTools list npm as a placeholder —\n'
+  printf '    swap it for whatever this project uses to install and test, or\n'
+  printf '    the agent has no way to check its own work before opening a PR.\n'
+  printf '  → tag an issue claude-task to queue it for the next scheduled run,\n'
+  printf '    or trigger a run now with workflow_dispatch to try it early.\n'
 fi
 if [ "$want_prtitle" = true ]; then
   printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'

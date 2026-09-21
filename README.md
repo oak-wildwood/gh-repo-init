@@ -63,6 +63,13 @@ protected".
 workflow, and `.gitignore` entries for agent-local files. Each is asked about separately and
 skipped if already present.
 
+**A nightly cron for unattended work.** Only offered once the Claude Code GitHub workflow is
+present, since it reuses that same GitHub App and `CLAUDE_CODE_OAUTH_TOKEN`. Each night it claims
+the oldest open issue labeled `claude-task` (creating that label and `claude-in-progress`, its
+in-flight marker, if they don't exist yet), runs Claude against it, and always opens a pull request
+for review rather than merging anything itself. The workflow's `--allowedTools` ships with `npm` as
+a placeholder — edit it for whatever the project actually uses to install and test.
+
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch
 commits, a wrong title is untidy rather than permanent, and a check nobody needs is just a red X
