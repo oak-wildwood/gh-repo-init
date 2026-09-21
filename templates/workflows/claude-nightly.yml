@@ -1,0 +1,112 @@
+name: Claude Nightly
+
+# Runs Claude unattended overnight against issues labeled `claude-task`,
+# instead of waiting for someone to type @claude. Needs the same GitHub App +
+# CLAUDE_CODE_OAUTH_TOKEN as claude.yml, plus the `claude-task` and
+# `claude-in-progress` labels — gh repo-init creates both when this workflow
+# is added.
+#
+# One issue per run, oldest first: the picked issue is labeled
+# `claude-in-progress` for the run's duration so the next night's cron can't
+# grab it too, and the label comes off whether the run succeeds or fails —
+# a failure is simply retried the following night, no bespoke resume logic.
+#
+# Deliberately simple for a first version: this does not try to tell "hit
+# the usage wall" apart from "the OAuth token expired". Both need a human to
+# read the job log either way, so the failure comment just points at it.
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # ~2am Pacific; GitHub cron runs in UTC — adjust to your own off-hours
+  workflow_dispatch: {}
+
+concurrency:
+  group: claude-nightly
+  cancel-in-progress: false
+
+jobs:
+  pick-work:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    outputs:
+      issue_number: ${{ steps.pick.outputs.issue_number }}
+    steps:
+      - name: Find the oldest unclaimed claude-task issue
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label claude-task --state open \
+            --json number,createdAt \
+            --jq 'sort_by(.createdAt) | .[0].number // empty')
+          echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
+
+      - name: Claim it
+        if: steps.pick.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ steps.pick.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --add-label claude-in-progress
+
+  claude:
+    needs: pick-work
+    if: needs.pick-work.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # lets Claude read CI results on pull requests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+
+          prompt: |
+            Work autonomously on issue #${{ needs.pick-work.outputs.issue_number }}.
+            Read AGENTS.md (and any other project instructions) first, and follow them.
+            Open a pull request when done, following this project's PR title convention.
+            Never modify anything under .github/workflows.
+
+          # Passing --allowedTools at all suppresses the action's default
+          # Write/Edit grant instead of adding to it, so list them explicitly
+          # or the agent can look at the repo but not change it. The npm
+          # entries are a placeholder — swap them for whatever this project
+          # actually uses to install dependencies and run its tests/build, or
+          # the agent has no way to check its own work before opening a PR.
+          claude_args: |
+            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(gh pr create:*),Bash(gh pr view:*)"
+
+      - name: Clear the claim on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+
+      - name: Release the claim on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+          gh issue comment "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "Nightly run failed — unclaimed for retry tomorrow. Check the [job run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) log: a usage/rate-limit message needs no action, an auth/token message means \`CLAUDE_CODE_OAUTH_TOKEN\` needs refreshing."
