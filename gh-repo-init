@@ -251,7 +251,16 @@ head2 "Branch protection"
 protect=false
 admin_bypass=true
 required_check=""
-existing_ruleset="$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.target=="branch") | .name' 2>/dev/null | head -1)"
+existing_ruleset=""
+if rulesets_json="$(gh api "repos/$REPO/rulesets" 2>/dev/null)"; then
+  existing_ruleset="$(printf '%s' "$rulesets_json" | jq -r '.[] | select(.target=="branch") | .name' | head -1)"
+else
+  # A 403 here almost always means rulesets aren't available on this plan
+  # (private repos need GitHub Pro), not that none exist. On error, gh prints
+  # the raw API error body to stdout instead of running --jq over it, so
+  # without this branch that body gets captured as if it were a ruleset name.
+  skip "Could not check for an existing branch ruleset (private repos need a paid plan for rulesets) — treating as none"
+fi
 
 if [ -n "$existing_ruleset" ]; then
   skip "A branch ruleset already exists (\"$existing_ruleset\") — leaving it alone"
