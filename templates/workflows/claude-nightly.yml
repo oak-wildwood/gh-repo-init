@@ -89,8 +89,19 @@ jobs:
           # entries are a placeholder — swap them for whatever this project
           # actually uses to install dependencies and run its tests/build, or
           # the agent has no way to check its own work before opening a PR.
+          # Also needs git commands explicitly — without them Claude can edit
+          # files but has no way to branch/commit/push, so `gh pr create` has
+          # nothing to open a PR from. And needs `gh issue view` explicitly:
+          # unlike the comment-triggered claude.yml, this schedule/
+          # workflow_dispatch ("agent") mode does not auto-inject issue
+          # context into the prompt — only the bare issue number is there —
+          # so without it Claude can't read the issue it was told to work on
+          # (both confirmed the hard way in cooperage, 2026-09-21: a real
+          # nightly run edited nothing and hit 27 permission denials before
+          # git was added; with git added it still correctly refused to
+          # fabricate a PR because it couldn't read the issue body).
           claude_args: |
-            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(gh pr create:*),Bash(gh pr view:*)"
+            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(gh issue view:*),Bash(gh pr create:*),Bash(gh pr view:*)"
 
       - name: Clear the claim on success
         if: success()

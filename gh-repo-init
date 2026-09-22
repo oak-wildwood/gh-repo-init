@@ -225,15 +225,13 @@ elif ask_yn "Delete branches automatically after merge?" "y"; then
   delete_branches=true
 fi
 
-head2 "Branch protection"
-protect=false
-admin_bypass=true
-required_check=""
-existing_ruleset="$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.target=="branch") | .name' 2>/dev/null | head -1)"
-
-if [ -n "$existing_ruleset" ]; then
-  skip "A branch ruleset already exists (\"$existing_ruleset\") — leaving it alone"
-elif ask_yn "Require a pull request to land on $default_branch?" "n"; then
+# Asks the require-PR question and, on yes, fills in required_check and
+# admin_bypass. Shared by the branch-protection step below and by the
+# claude-workflow nudge further down, which offers this again if it was
+# skipped and Claude is about to be granted push access.
+offer_branch_protection() {
+  local prompt="$1" default="${2:-n}"
+  ask_yn "$prompt" "$default" || return 1
   protect=true
   printf '  %sNo required reviewers: on a solo repo you cannot approve your own\n' "$DIM"
   printf '  pull request, and requiring one would make the branch unmergeable.%s\n' "$RESET"
@@ -247,6 +245,18 @@ elif ask_yn "Require a pull request to land on $default_branch?" "n"; then
   # to you too, and a one-line fix needs a pull request like anything else.
   ask_yn "Let repository admins bypass it? (you, for the occasional direct push)" "y" \
     || admin_bypass=false
+}
+
+head2 "Branch protection"
+protect=false
+admin_bypass=true
+required_check=""
+existing_ruleset="$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.target=="branch") | .name' 2>/dev/null | head -1)"
+
+if [ -n "$existing_ruleset" ]; then
+  skip "A branch ruleset already exists (\"$existing_ruleset\") — leaving it alone"
+else
+  offer_branch_protection "Require a pull request to land on $default_branch?" "n"
 fi
 
 head2 "Agent instruction files"
@@ -271,6 +281,19 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable the nightly cron"
   elif ask_yn "Add a nightly cron that picks up claude-task issues unattended?" "n"; then
     want_nightly=true
+  fi
+
+  # Both workflows grant Claude git push and gh pr create (see the allowedTools
+  # comments in the templates) — it can commit and open pull requests on its
+  # own. If branch protection was skipped above, nothing stops one of those
+  # pushes landing directly on $default_branch without review. Ask again here,
+  # in context, rather than leaving that connection for the owner to notice
+  # later — defaulting to yes this time, since they've now said yes to the
+  # thing this guards against.
+  if { [ "$want_workflow" = true ] || [ "$want_nightly" = true ]; } \
+     && [ "$protect" != true ] && [ -z "$existing_ruleset" ]; then
+    warn "Claude can now push commits and open pull requests against $default_branch unattended — nothing currently stops one landing there directly without review."
+    offer_branch_protection "Require a pull request to land on $default_branch before continuing?" "y"
   fi
 
   # Only worth offering when the answers above made the pull request title the
