@@ -1,13 +1,9 @@
 name: Claude Code
 
-# Triggered by an @claude mention on an issue, a pull request, or a review
-# comment. Requires the Claude GitHub App and a CLAUDE_CODE_OAUTH_TOKEN secret:
-# run /install-github-app in Claude Code to set both up.
-#
-# On a public repo this is safe by default — the action only runs for users
-# with write access to the repository, so a passer-by mentioning @claude does
-# not spend your tokens. Do not set allowed_non_write_users; it removes exactly
-# that protection.
+# Thin caller for oak-wildwood/gh-repo-init's reusable claude workflow — see
+# that repo's .github/workflows/claude.yml for what actually runs. Requires
+# the Claude GitHub App and a CLAUDE_CODE_OAUTH_TOKEN secret: run
+# /install-github-app in Claude Code to set both up.
 
 on:
   issue_comment:
@@ -21,84 +17,6 @@ on:
 
 jobs:
   claude:
-    if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      actions: read # lets Claude read CI results on pull requests
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-
-      # Keep these three IDs identical to the Model Tier label mapping in
-      # oak-wildwood/gh-repo-init's .github/workflows/nightly.yml ("Resolve
-      # the model tier from the issue's labels") — bump one, bump both.
-      - name: Determine model from trigger text
-        id: model
-        env:
-          TRIGGER_TEXT: >-
-            ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
-        run: |
-          text=$(printf '%s' "$TRIGGER_TEXT" | tr '[:upper:]' '[:lower:]')
-          if echo "$text" | grep -qw "haiku"; then
-            echo "model=claude-haiku-4-5-20251001" >> "$GITHUB_OUTPUT"
-          elif echo "$text" | grep -qw "opus"; then
-            echo "model=claude-opus-5-5" >> "$GITHUB_OUTPUT"
-          else
-            echo "model=claude-sonnet-5" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run Claude Code
-        id: claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-
-          additional_permissions: |
-            actions: read
-
-          # Three things worth knowing, all learned the hard way:
-          #
-          # 1. Passing --allowedTools at all suppresses the action's default
-          #    Write/Edit grant instead of adding to it, despite what the docs
-          #    imply — confirmed 2026-09-17 when a real run had no Write/Edit
-          #    in its ALLOWED_TOOLS, could only Read/Glob/Grep, and died after
-          #    11 straight permission denials trying to create files. If you
-          #    specify --allowedTools, list Write and Edit explicitly or the
-          #    agent can look at your repo but can't change it.
-          #
-          # 2. Without a package manager in allowedTools the agent cannot run
-          #    your tests, linter or formatter — so it writes code it has no
-          #    way to check, and ships failures it would have caught in one
-          #    command. Swap npm for whatever this project actually uses.
-          #
-          # 3. By default the action pushes a branch and leaves a "Create PR"
-          #    link rather than opening the pull request itself. Allowing
-          #    `gh pr create` lets it finish the job when you ask it to.
-          #
-          # 4. Same override behavior as #1 also swallows git — without
-          #    explicit git entries Claude can edit files but never
-          #    branch/commit/push, so `gh pr create` has nothing to open a
-          #    PR from (confirmed 2026-09-21 in cooperage's nightly
-          #    workflow, which shares this allowlist pattern: a real run
-          #    edited nothing and never opened a PR).
-          #
-          # Model is chosen dynamically by the "Determine model from trigger
-          # text" step above: mention "haiku" or "opus" in the triggering
-          # comment/issue to override the claude-sonnet-5 default.
-          claude_args: |
-            --model ${{ steps.model.outputs.model }}
-            --allowedTools "Write,Edit,Bash(npm:*),Bash(npx:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(gh pr create:*),Bash(gh pr view:*)"
-          # The agent cannot edit files under .github/workflows/ — its token
-          # lacks workflow-write permission. Expect it to stop and say so
-          # rather than work around it; that restriction is deliberate.
+    uses: oak-wildwood/gh-repo-init/.github/workflows/claude.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

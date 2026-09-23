@@ -1,0 +1,145 @@
+name: Claude Code (reusable)
+
+# The logic behind every Tracked Repo's @claude-mention trigger, centralized
+# so a fix here reaches all of them through their caller's pinned ref
+# instead of a per-repo copy-paste. Callers stay ~10 lines: see
+# templates/workflows/claude.yml for the thin wrapper gh-repo-init installs.
+#
+# On a public repo this is safe by default — claude-code-action only runs
+# for users with write access to the repository, so a passer-by mentioning
+# @claude does not spend your tokens. Do not set allowed_non_write_users on
+# the Run Claude Code step below; it removes exactly that protection.
+#
+# The triggering comment/review/issue text picks the --model tier by
+# keyword — mention "haiku" or "opus" to override the sonnet default.
+# There's no fable keyword here: fable-tier work gets handed back to a
+# local session in nightly.yml because no one's watching a cron run, but a
+# comment trigger is already a human asking for this live, so there's
+# nothing to hand back to. The tier-to-model-ID table lives in
+# scripts/resolve-model.sh in this repo, fetched at run time — the same
+# script nightly.yml uses — so bumping a model ID there changes it
+# everywhere instead of two inline tables drifting apart.
+#
+# Every run uploads the action's execution_file as a
+# `run-report-<number>-<run_id>` artifact and posts the one-line Run Report
+# comment on the triggering issue or PR (see nightly.yml's header for the
+# full story and ADR 0007 in oak-wildwood/cooperage). Both the artifact
+# upload and the comment posting live in .github/actions/run-report in this
+# repo, a composite action shared with nightly.yml so a fix reaches both
+# instead of two copies of the same steps.
+
+on:
+  workflow_call:
+    inputs:
+      allowed_tools:
+        description: >-
+          --allowedTools string passed to the Claude Code action. Passing
+          --allowedTools at all suppresses the action's default Write/Edit
+          grant instead of adding to it — confirmed 2026-09-17, when a real
+          run had no Write/Edit in its ALLOWED_TOOLS, could only
+          Read/Glob/Grep, and died after 11 straight permission denials
+          trying to create files — so the default here lists them
+          explicitly alongside the git and gh commands needed to branch,
+          commit, push and open a PR. Without a git entry Claude can edit
+          files but never branch/commit/push, so `gh pr create` has
+          nothing to open a PR from (confirmed 2026-09-21). The npm/npx
+          entries are a placeholder — a caller whose project uses
+          something else should override this input, or the agent has no
+          way to check its own work before opening a PR.
+        type: string
+        default: >-
+          Write,Edit,Bash(npm:*),Bash(npx:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(gh pr create:*),Bash(gh pr view:*)
+      setup_node:
+        description: Set up Node before running Claude.
+        type: boolean
+        default: true
+      node_version:
+        description: Node version to set up, when setup_node is true.
+        type: string
+        default: "20"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # lets Claude read CI results on pull requests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Fetch the model-resolution script
+        run: |
+          curl -fsSL -o /tmp/resolve-model.sh \
+            https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/resolve-model.sh
+          chmod +x /tmp/resolve-model.sh
+
+      - name: Determine model from trigger text
+        id: model
+        env:
+          TRIGGER_TEXT: >-
+            ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+        run: |
+          text=$(printf '%s' "$TRIGGER_TEXT" | tr '[:upper:]' '[:lower:]')
+          if echo "$text" | grep -qw "haiku"; then
+            tier=haiku
+          elif echo "$text" | grep -qw "opus"; then
+            tier=opus
+          else
+            tier=sonnet
+          fi
+          echo "model=$(/tmp/resolve-model.sh "$tier")" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        if: inputs.setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+
+          claude_args: |
+            --model ${{ steps.model.outputs.model }}
+            --allowedTools "${{ inputs.allowed_tools }}"
+          # The agent cannot edit files under .github/workflows/ — its
+          # token lacks workflow-write permission. Expect it to stop and
+          # say so rather than work around it; that restriction is
+          # deliberate.
+
+      - name: Post the Run Report
+        if: always()
+        uses: ./.github/actions/run-report
+        with:
+          execution_file: ${{ steps.claude.outputs.execution_file }}
+          model: ${{ steps.model.outputs.model }}
+          conclusion: ${{ steps.claude.outputs.conclusion }}
+          target_kind: >-
+            ${{ (github.event_name == 'pull_request_review' ||
+            github.event_name == 'pull_request_review_comment' ||
+            (github.event_name == 'issue_comment' && github.event.issue.pull_request))
+            && 'pr' || 'issue' }}
+          target_number: ${{ github.event.issue.number || github.event.pull_request.number }}
+          branch_name: ${{ steps.claude.outputs.branch_name }}
+          artifact_name: >-
+            run-report-${{ github.event.issue.number || github.event.pull_request.number }}-${{ github.run_id }}

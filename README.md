@@ -61,7 +61,9 @@ protected".
 
 **Agent instruction files.** `AGENTS.md`, a `CLAUDE.md` that imports it, the Claude Code GitHub
 workflow, and `.gitignore` entries for agent-local files. Each is asked about separately and
-skipped if already present.
+skipped if already present. Like `claude-nightly.yml`, `claude.yml` is a thin caller into this
+repo's reusable `.github/workflows/claude.yml`, so a fix reaches every repo that installed it
+through a pinned ref instead of a per-repo copy.
 
 **A nightly cron for unattended work.** Only offered once the Claude Code GitHub workflow is
 present, since it reuses that same GitHub App and `CLAUDE_CODE_OAUTH_TOKEN`. Each night it claims
