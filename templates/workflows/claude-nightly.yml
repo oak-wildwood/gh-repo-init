@@ -17,6 +17,12 @@ on:
 
 jobs:
   nightly:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
     uses: oak-wildwood/gh-repo-init/.github/workflows/nightly.yml@main
     with:
       issue_number: ${{ inputs.issue_number }}
