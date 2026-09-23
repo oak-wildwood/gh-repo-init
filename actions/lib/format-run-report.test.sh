@@ -1,8 +1,8 @@
 #!/bin/sh
-# Fixtures for scripts/format-run-report.sh. Run with: sh scripts/format-run-report.test.sh
+# Fixtures for actions/lib/format-run-report.sh. Run with: sh actions/lib/format-run-report.test.sh
 set -eu
 
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 script="$dir/format-run-report.sh"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

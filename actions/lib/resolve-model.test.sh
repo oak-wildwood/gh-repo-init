@@ -1,8 +1,8 @@
 #!/bin/sh
-# Fixtures for scripts/resolve-model.sh. Run with: sh scripts/resolve-model.test.sh
+# Fixtures for actions/lib/resolve-model.sh. Run with: sh actions/lib/resolve-model.test.sh
 set -eu
 
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 script="$dir/resolve-model.sh"
 
 fail=0

@@ -8,8 +8,8 @@
 # phrase elsewhere in the body is ignored. Several refs may appear on one
 # line, comma- or "and"-separated.
 #
-# Used by .github/workflows/nightly.yml's pick step. Fixtures for this
-# parsing live in scripts/parse-blockers.test.sh.
+# Used by actions/nightly-pick. Fixtures for this
+# parsing live in actions/lib/parse-blockers.test.sh.
 set -eu
 
 default_repo=$1

@@ -15,8 +15,8 @@
 # argument, per ADR 0007 in oak-wildwood/cooperage: a run report with no
 # real numbers behind it should say so, not print zeroes.
 #
-# Used by .github/workflows/nightly.yml's claude job. Fixtures for this
-# formatting live in scripts/format-run-report.test.sh.
+# Used by actions/lib/post-run-report.sh. Fixtures for this
+# formatting live in actions/lib/format-run-report.test.sh.
 set -eu
 
 execution_file=${1:-}
