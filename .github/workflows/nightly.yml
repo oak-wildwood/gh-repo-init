@@ -29,6 +29,19 @@ name: Claude Nightly (reusable)
 # started. The id mapping lives in one step ("Resolve the model tier from
 # the issue's labels") below — bump a model ID there, and in claude.yml's
 # matching keyword mapping, to change it everywhere.
+#
+# Every run of the claude job — success or failure — uploads the action's
+# execution_file as a `run-report-<issue>-<run_id>` artifact and posts a
+# one-line `Run Report: <model> · <tokens> tokens · <duration> ·
+# <conclusion>` comment on the issue (and on the PR, if Claude opened one).
+# Cooperage's collector (Phase 1) downloads these artifacts to build usage
+# Estimates — see ADR 0007 in oak-wildwood/cooperage. No cost figures and
+# no issue text go in the comment, only what's needed for that estimate.
+# The formatting lives in scripts/format-run-report.sh in this repo,
+# fetched at run time for the same one-source-of-truth reason as the
+# blocker parsing above; see scripts/format-run-report.test.sh for its
+# fixtures. A Claude step that crashes before writing the execution file
+# still gets a `Run Report: unavailable · failure` comment.
 
 on:
   workflow_call:
@@ -179,6 +192,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Fetch the Run Report formatting script
+        run: |
+          curl -fsSL -o /tmp/format-run-report.sh \
+            https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/format-run-report.sh
+          chmod +x /tmp/format-run-report.sh
+
       - name: Set up Node
         if: inputs.setup_node
         uses: actions/setup-node@v4
@@ -203,6 +222,35 @@ jobs:
           claude_args: |
             --model ${{ needs.pick-work.outputs.model }}
             --allowedTools "${{ inputs.allowed_tools }}"
+
+      - name: Upload the Run Report artifact
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-report-${{ needs.pick-work.outputs.issue_number }}-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+
+      - name: Post the Run Report comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          MODEL: ${{ needs.pick-work.outputs.model }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          ISSUE_NUMBER: ${{ needs.pick-work.outputs.issue_number }}
+          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+        run: |
+          body=$(/tmp/format-run-report.sh "$EXECUTION_FILE" "$MODEL" "$CONCLUSION")
+
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+
+          if [ -n "$BRANCH_NAME" ]; then
+            pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$pr_number" ]; then
+              gh pr comment "$pr_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+            fi
+          fi
 
       - name: Clear the claim on success
         if: success()
