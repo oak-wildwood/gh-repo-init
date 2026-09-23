@@ -229,6 +229,29 @@ fi
 # admin_bypass. Shared by the branch-protection step below and by the
 # claude-workflow nudge further down, which offers this again if it was
 # skipped and Claude is about to be granted push access.
+# Looks up real status-check names from a recent commit's check-runs, so the
+# branch-protection prompt can offer a picker instead of freeform text a typo
+# can silently break — a ruleset requiring a context that never reports leaves
+# the branch stuck at "Expected — waiting for status to be reported" forever.
+# Tries the default branch's head first; a pull_request-triggered workflow
+# doesn't run against the base branch directly, so this falls back to a
+# recent merged pull request's head commit. Echoes one name per line, or
+# nothing if no check runs were found either way.
+lookup_check_run_names() {
+  local sha names
+  sha="$(gh api "repos/$REPO/commits/$default_branch" --jq '.sha' 2>/dev/null || true)"
+  if [ -n "$sha" ]; then
+    names="$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '.check_runs[].name' 2>/dev/null | sort -u || true)"
+    if [ -n "$names" ]; then
+      printf '%s\n' "$names"
+      return
+    fi
+  fi
+  sha="$(gh api "repos/$REPO/pulls?state=closed&per_page=5" --jq '[.[] | select(.merged_at != null)][0].head.sha' 2>/dev/null || true)"
+  [ -n "$sha" ] && gh api "repos/$REPO/commits/$sha/check-runs" --jq '.check_runs[].name' 2>/dev/null | sort -u
+  return 0
+}
+
 offer_branch_protection() {
   local prompt="$1" default="${2:-n}"
   ask_yn "$prompt" "$default" || return 1
@@ -238,7 +261,26 @@ offer_branch_protection() {
 
   # Named rather than assumed. A fresh repo has no checks yet, and a ruleset
   # requiring a context that never reports leaves the branch unmergeable.
-  required_check="$(ask_text "Name of a status check to require, if any (enter to skip)")"
+  # Offer a picker built from what has actually reported — it also sidesteps
+  # the workflow-name vs. job-id mismatch (a workflow's `name:` in the YAML is
+  # not the context CI posts) that causes exactly this typo.
+  local check_names name
+  local -a check_opts=()
+  check_names="$(lookup_check_run_names)"
+  if [ -n "$check_names" ]; then
+    while IFS= read -r name; do
+      [ -n "$name" ] && check_opts+=("$name:$name")
+    done <<< "$check_names"
+    check_opts+=("none:Don't require one")
+    check_opts+=("other:Type a name manually")
+    required_check="$(ask_choice "Which status check should be required?" "none" "${check_opts[@]}")"
+    case "$required_check" in
+      none)  required_check="" ;;
+      other) required_check="$(ask_text "Status check name")" ;;
+    esac
+  else
+    required_check="$(ask_text "Name of a status check to require, if any (enter to skip) — no check runs found yet on $default_branch, so this can't be checked against what CI actually reports; requiring a name that never posts leaves the branch stuck")"
+  fi
 
   # Worth asking rather than defaulting silently: with bypass the rule is a
   # guardrail you can step over and may forget you did; without it, it applies
