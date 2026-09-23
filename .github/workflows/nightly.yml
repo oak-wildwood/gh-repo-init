@@ -6,12 +6,20 @@ name: Claude Nightly (reusable)
 # templates/workflows/claude-nightly.yml for the thin wrapper gh-repo-init
 # installs.
 #
-# One issue per run, oldest first (or the one named by `issue_number`,
-# letting a caller trigger a specific issue on demand instead of waiting for
-# the cron — see Phase 4 "Run Now"). The picked issue is labeled
-# `claude-in-progress` for the run's duration so nothing else can grab it
-# too, and the label comes off whether the run succeeds or fails — a
-# failure is simply retried the following night, no bespoke resume logic.
+# One issue per run, oldest first among those with no open blocker (or the
+# one named by `issue_number`, letting a caller trigger a specific issue on
+# demand instead of waiting for the cron — see Phase 4 "Run Now"; an
+# explicit issue_number skips the blocker check too, since a human already
+# chose it). A blocker is a body line matching `Blocked by #N` (same repo)
+# or `Blocked by owner/repo#N` (cross-repo); an issue can list several. If
+# every open claude-task issue is blocked, the run exits without claiming
+# anything. The parsing lives in scripts/parse-blockers.sh in this repo,
+# fetched at run time so the logic has one source of truth instead of a
+# copy embedded in this YAML — see scripts/parse-blockers.test.sh for its
+# fixtures. The picked issue is labeled `claude-in-progress` for the run's
+# duration so nothing else can grab it too, and the label comes off whether
+# the run succeeds or fails — a failure is simply retried the following
+# night, no bespoke resume logic.
 #
 # The picked issue's Model Tier label (model:haiku / model:sonnet /
 # model:opus) picks the --model passed to Claude; no label defaults to
@@ -68,20 +76,51 @@ jobs:
       issue_number: ${{ steps.model.outputs.model != 'fable' && steps.pick.outputs.issue_number || '' }}
       model: ${{ steps.model.outputs.model != 'fable' && steps.model.outputs.model || '' }}
     steps:
-      - name: Find the oldest unclaimed claude-task issue
+      - name: Fetch the blocker-parsing script
+        run: |
+          curl -fsSL -o /tmp/parse-blockers.sh \
+            https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/parse-blockers.sh
+          chmod +x /tmp/parse-blockers.sh
+
+      - name: Find the oldest unclaimed, unblocked claude-task issue
         id: pick
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
+          REPO: ${{ github.repository }}
         run: |
           if [ -n "$ISSUE_NUMBER" ]; then
-            issue="$ISSUE_NUMBER"
-          else
-            issue=$(gh issue list --repo "$GITHUB_REPOSITORY" \
-              --label claude-task --state open \
-              --json number,createdAt \
-              --jq 'sort_by(.createdAt) | .[0].number // empty')
+            echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          candidates=$(gh issue list --repo "$REPO" \
+            --label claude-task --state open --limit 100 \
+            --json number,createdAt \
+            --jq 'sort_by(.createdAt) | .[].number')
+
+          issue=""
+          for n in $candidates; do
+            body=$(gh issue view "$n" --repo "$REPO" --json body -q .body)
+            blockers=$(printf '%s\n' "$body" | /tmp/parse-blockers.sh "$REPO")
+
+            blocked=""
+            for ref in $blockers; do
+              ref_repo=${ref%#*}
+              ref_num=${ref##*#}
+              state=$(gh issue view "$ref_num" --repo "$ref_repo" --json state -q .state 2>/dev/null || echo UNKNOWN)
+              if [ "$state" != "CLOSED" ]; then
+                blocked=1
+                break
+              fi
+            done
+
+            if [ -z "$blocked" ]; then
+              issue="$n"
+              break
+            fi
+          done
+
           echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
 
       - name: Claim it
