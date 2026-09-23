@@ -35,6 +35,7 @@ runs:
           Work autonomously on issue #${{ inputs.issue_number }}.
           Read AGENTS.md (and any other project instructions) first, and follow them.
           Open a pull request when done, following this project's PR title convention.
+          The PR body MUST include the line "Closes #${{ inputs.issue_number }}" so the issue closes when the PR merges.
           Never modify anything under .github/workflows.
 
         claude_args: |
@@ -47,6 +48,25 @@ runs:
       with:
         name: run-report-${{ inputs.issue_number }}-${{ github.run_id }}
         path: ${{ steps.claude.outputs.execution_file }}
+
+    - name: Ensure PR body includes Closes directive
+      if: always() && steps.claude.outputs.branch_name != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ inputs.issue_number }}
+        BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+      run: |
+        pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" \
+          --json number --jq '.[0].number // empty')
+        if [ -n "$pr_number" ]; then
+          body=$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json body -q .body)
+          if ! printf '%s\n' "$body" | grep -q "^Closes #$ISSUE_NUMBER\$"; then
+            # Prepend the Closes line
+            new_body="Closes #$ISSUE_NUMBER"$'\n'"$body"
+            gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body "$new_body"
+          fi
+        fi
 
     - name: Post the Run Report comment
       if: always()
