@@ -42,6 +42,18 @@ runs:
           --model ${{ inputs.model }}
           --allowedTools "${{ inputs.allowed_tools }}"
 
+    - name: Fail the job if the Claude step was skipped
+      if: steps.claude.outcome == 'success'
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+      run: |
+        if [ -z "$EXECUTION_FILE" ] || [ -z "$CONCLUSION" ]; then
+          echo "::error::The Claude step reported success but produced no execution_file/conclusion — it likely skipped itself (e.g. a workflow-validation mismatch between the caller's pinned ref and this repo's default branch) rather than actually running." >&2
+          exit 1
+        fi
+
     - name: Upload the Run Report artifact
       if: always() && steps.claude.outputs.execution_file != ''
       uses: actions/upload-artifact@v4
@@ -97,7 +109,16 @@ runs:
         GH_TOKEN: ${{ github.token }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        CONCLUSION: ${{ steps.claude.outputs.conclusion }}
       run: |
         gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+
+        if [ -z "$EXECUTION_FILE" ] || [ -z "$CONCLUSION" ]; then
+          reason="the Claude step produced no output, meaning it skipped itself instead of running — check the log for a workflow-validation mismatch (the caller's pinned ref must have identical workflow content to this repo's default branch)"
+        else
+          reason="a usage/rate-limit message needs no action, an auth/token message means \`CLAUDE_CODE_OAUTH_TOKEN\` needs refreshing"
+        fi
+
         gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
-          --body "Nightly run failed — unclaimed for retry tomorrow. Check the [job run]($RUN_URL) log: a usage/rate-limit message needs no action, an auth/token message means \`CLAUDE_CODE_OAUTH_TOKEN\` needs refreshing."
+          --body "Nightly run failed — unclaimed for retry tomorrow. Check the [job run]($RUN_URL) log: $reason."
