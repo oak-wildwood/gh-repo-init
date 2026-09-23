@@ -1,0 +1,143 @@
+name: Claude Nightly (reusable)
+
+# The logic behind every Tracked Repo's nightly cron, centralized so a fix
+# here reaches all of them through their caller's pinned ref instead of a
+# per-repo copy-paste. Callers stay ~15 lines: see
+# templates/workflows/claude-nightly.yml for the thin wrapper gh-repo-init
+# installs.
+#
+# One issue per run, oldest first (or the one named by `issue_number`,
+# letting a caller trigger a specific issue on demand instead of waiting for
+# the cron — see Phase 4 "Run Now"). The picked issue is labeled
+# `claude-in-progress` for the run's duration so nothing else can grab it
+# too, and the label comes off whether the run succeeds or fails — a
+# failure is simply retried the following night, no bespoke resume logic.
+
+on:
+  workflow_call:
+    inputs:
+      allowed_tools:
+        description: >-
+          --allowedTools string passed to the Claude Code action. Passing
+          --allowedTools at all suppresses the action's default Write/Edit
+          grant instead of adding to it, so the default here lists them
+          explicitly alongside the git and gh commands needed to branch,
+          commit, push, read the issue and open a PR. The npm/npx entries
+          are a placeholder — a caller whose project uses something else
+          should override this input.
+        type: string
+        default: >-
+          Write,Edit,Bash(npm:*),Bash(npx:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(gh issue view:*),Bash(gh pr create:*),Bash(gh pr view:*)
+      setup_node:
+        description: Set up Node before running Claude.
+        type: boolean
+        default: true
+      node_version:
+        description: Node version to set up, when setup_node is true.
+        type: string
+        default: "20"
+      issue_number:
+        description: >-
+          Work this issue instead of picking the oldest open claude-task
+          issue. Leave unset for the normal nightly pick.
+        type: string
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+concurrency:
+  group: claude-nightly
+  cancel-in-progress: false
+
+jobs:
+  pick-work:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    outputs:
+      issue_number: ${{ steps.pick.outputs.issue_number }}
+    steps:
+      - name: Find the oldest unclaimed claude-task issue
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          if [ -n "$ISSUE_NUMBER" ]; then
+            issue="$ISSUE_NUMBER"
+          else
+            issue=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+              --label claude-task --state open \
+              --json number,createdAt \
+              --jq 'sort_by(.createdAt) | .[0].number // empty')
+          fi
+          echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
+
+      - name: Claim it
+        if: steps.pick.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ steps.pick.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --add-label claude-in-progress
+
+  claude:
+    needs: pick-work
+    if: needs.pick-work.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # lets Claude read CI results on pull requests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        if: inputs.setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+
+          prompt: |
+            Work autonomously on issue #${{ needs.pick-work.outputs.issue_number }}.
+            Read AGENTS.md (and any other project instructions) first, and follow them.
+            Open a pull request when done, following this project's PR title convention.
+            Never modify anything under .github/workflows.
+
+          claude_args: |
+            --allowedTools "${{ inputs.allowed_tools }}"
+
+      - name: Clear the claim on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+
+      - name: Release the claim on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+          gh issue comment "${{ needs.pick-work.outputs.issue_number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "Nightly run failed — unclaimed for retry tomorrow. Check the [job run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) log: a usage/rate-limit message needs no action, an auth/token message means \`CLAUDE_CODE_OAUTH_TOKEN\` needs refreshing."

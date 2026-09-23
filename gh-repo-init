@@ -623,11 +623,14 @@ if [ "$want_workflow" = true ]; then
   printf '    run /install-github-app in Claude Code.\n'
 fi
 if [ "$want_nightly" = true ]; then
-  printf '  → claude-nightly.yml'"'"'s allowedTools list npm as a placeholder —\n'
-  printf '    swap it for whatever this project uses to install and test, or\n'
-  printf '    the agent has no way to check its own work before opening a PR.\n'
+  printf '  → the reusable workflow'"'"'s default allowedTools lists npm as a\n'
+  printf '    placeholder — add an `allowed_tools:` override under `with:` in\n'
+  printf '    claude-nightly.yml for whatever this project uses to install and\n'
+  printf '    test, or the agent has no way to check its own work before\n'
+  printf '    opening a PR.\n'
   printf '  → tag an issue claude-task to queue it for the next scheduled run,\n'
-  printf '    or trigger a run now with workflow_dispatch to try it early.\n'
+  printf '    or trigger a run now with workflow_dispatch (pass issue_number\n'
+  printf '    to target one directly) to try it early.\n'
 fi
 if [ "$want_prtitle" = true ]; then
   printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'
