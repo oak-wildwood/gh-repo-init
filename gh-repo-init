@@ -313,7 +313,7 @@ fi
 if [ -n "$existing_ruleset" ]; then
   skip "A branch ruleset already exists (\"$existing_ruleset\") — leaving it alone"
 else
-  offer_branch_protection "Require a pull request to land on $default_branch?" "n"
+  offer_branch_protection "Require a pull request to land on $default_branch?" "n" || true
 fi
 
 head2 "Agent instruction files"
@@ -328,16 +328,19 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
   [ -e "$root/CLAUDE.md" ] && skip "CLAUDE.md exists, leaving it alone" \
     || { ask_yn "Add a CLAUDE.md that imports AGENTS.md?" "y" && want_claude=true; }
   [ -e "$root/.github/workflows/claude.yml" ] && skip "claude.yml exists, leaving it alone" \
-    || { ask_yn "Add the Claude Code GitHub workflow?" "n" && want_workflow=true; }
+    || { ask_yn "Add the Claude Code GitHub workflow?" "y" && want_workflow=true; }
 
   # Reuses claude.yml's GitHub App + CLAUDE_CODE_OAUTH_TOKEN, so there's no
   # point asking when neither exists yet nor is about to.
+  nightly_cron="0 9 * * *"
   if [ -e "$root/.github/workflows/claude-nightly.yml" ]; then
     skip "claude-nightly.yml exists, leaving it alone"
   elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
     skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable the nightly cron"
-  elif ask_yn "Add a nightly cron that picks up claude-task issues unattended?" "n"; then
+  elif ask_yn "Add a nightly cron that picks up claude-task issues unattended?" "y"; then
     want_nightly=true
+    reply_cron="$(ask_text "Cron schedule for the nightly run? GitHub cron runs in UTC. (enter for 0 9 * * * — ~2am Pacific)")"
+    [ -n "$reply_cron" ] && nightly_cron="$reply_cron"
   fi
 
   # Both workflows grant Claude git push and gh pr create (see the allowedTools
@@ -351,7 +354,7 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
   if { [ "$want_workflow" = true ] || [ "$want_nightly" = true ]; } \
      && [ "$protect" != true ] && [ -z "$existing_ruleset" ]; then
     warn "Claude can now push commits and open pull requests against $default_branch unattended — nothing currently stops one landing there directly without review."
-    offer_branch_protection "Require a pull request to land on $default_branch before continuing?" "y"
+    offer_branch_protection "Require a pull request to land on $default_branch before continuing?" "y" || true
   fi
 
   # Only worth offering when the answers above made the pull request title the
@@ -521,6 +524,11 @@ if [ "$want_nightly" = true ]; then
   }
   create_label claude-task "Queued for unattended pickup by the nightly Claude cron" 5319e7
   create_label claude-in-progress "Currently claimed by a running nightly Claude job" fbca04
+  create_label human-task "Only a human can do this" d93f0b
+  create_label model:haiku "Model Tier: mechanical work" c5def5
+  create_label model:sonnet "Model Tier: normal feature work" 0e8a16
+  create_label model:opus "Model Tier: design-heavy/subtle" 1d76db
+  create_label model:fable "Model Tier: judgment-heavy — runs in a local session, not the nightly cron" d4c5f9
 fi
 
 if [ "$in_worktree" = true ]; then
@@ -532,7 +540,20 @@ if [ "$in_worktree" = true ]; then
   [ "$want_agents" = true ]   && place "templates/AGENTS.md" "AGENTS.md"
   [ "$want_claude" = true ]   && place "templates/CLAUDE.md" "CLAUDE.md"
   [ "$want_workflow" = true ] && place "templates/workflows/claude.yml" ".github/workflows/claude.yml"
-  [ "$want_nightly" = true ] && place "templates/workflows/claude-nightly.yml" ".github/workflows/claude-nightly.yml"
+  if [ "$want_nightly" = true ]; then
+    dest="$root/.github/workflows/claude-nightly.yml"
+    if [ "$DRY_RUN" = true ]; then
+      ok "would create .github/workflows/claude-nightly.yml (cron: $nightly_cron)"
+    else
+      # sed, not place()'s plain cp: the template's cron line is a
+      # placeholder the user's answer (or the default) fills in. Escape
+      # &, / and \ since they're meaningful to sed on the replacement side.
+      esc_cron="$(printf '%s' "$nightly_cron" | sed -e 's/[&/\]/\\&/g')"
+      mkdir -p "$(dirname "$dest")"
+      sed "s/__NIGHTLY_CRON__/$esc_cron/" "$EXT_DIR/templates/workflows/claude-nightly.yml" > "$dest"
+      ok "created .github/workflows/claude-nightly.yml"
+    fi
+  fi
   [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
   [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
   [ "$want_vercel" = true ]   && place "templates/vercel.json" "vercel.json"

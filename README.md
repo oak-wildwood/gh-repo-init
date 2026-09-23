@@ -60,20 +60,25 @@ classic `/branches/*/protection` endpoint, so checking protection the old way re
 protected".
 
 **Agent instruction files.** `AGENTS.md`, a `CLAUDE.md` that imports it, the Claude Code GitHub
-workflow, and `.gitignore` entries for agent-local files. Each is asked about separately and
-skipped if already present. Like `claude-nightly.yml`, `claude.yml` is a thin caller into this
-repo's reusable `.github/workflows/claude.yml`, so a fix reaches every repo that installed it
-through a pinned ref instead of a per-repo copy.
+workflow, and `.gitignore` entries for agent-local files. Each is asked about separately (defaulting
+to yes for the two Claude workflows, since every recent repo has wanted them) and skipped if already
+present. Like `claude-nightly.yml`, `claude.yml` is a thin caller into this repo's reusable
+`.github/workflows/claude.yml`, pinned to a `@v1`-style tag so a fix there doesn't change your repo's
+behaviour until you move the pin.
 
 **A nightly cron for unattended work.** Only offered once the Claude Code GitHub workflow is
-present, since it reuses that same GitHub App and `CLAUDE_CODE_OAUTH_TOKEN`. Each night it claims
-the oldest open issue labeled `claude-task` (creating that label and `claude-in-progress`, its
-in-flight marker, if they don't exist yet), runs Claude against it, and always opens a pull request
-for review rather than merging anything itself. `claude-nightly.yml` is a thin caller into this
-repo's reusable `.github/workflows/nightly.yml`, so fixes reach every repo that installed it
-through a pinned ref instead of a per-repo copy. Its default `--allowedTools` ships with `npm` as a
-placeholder — override the `allowed_tools` input for whatever the project actually uses to install
-and test.
+present, since it reuses that same GitHub App and `CLAUDE_CODE_OAUTH_TOKEN`. Asks for the cron
+schedule (default `0 9 * * *`, ~2am Pacific — GitHub cron runs in UTC). Each night it claims the
+oldest open issue labeled `claude-task` with no open blocker, runs Claude against it at the model
+tier its `model:haiku` / `model:sonnet` / `model:opus` label picks (`model:fable` issues are handed
+back for a local session instead), and always opens a pull request for review rather than merging
+anything itself. `claude-nightly.yml` is a thin caller into this repo's reusable
+`.github/workflows/nightly.yml`, pinned the same way as `claude.yml`. Its default `--allowedTools`
+ships with `npm` as a placeholder — override the `allowed_tools` input for whatever the project
+actually uses to install and test.
+
+Adding the nightly cron creates the standard label set if any are missing: `claude-task`,
+`claude-in-progress`, `human-task`, and the four `model:*` tier labels.
 
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch
