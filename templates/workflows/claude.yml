@@ -40,6 +40,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Keep these three IDs identical to the Model Tier label mapping in
+      # oak-wildwood/gh-repo-init's .github/workflows/nightly.yml ("Resolve
+      # the model tier from the issue's labels") — bump one, bump both.
       - name: Determine model from trigger text
         id: model
         env:
