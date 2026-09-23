@@ -1,0 +1,83 @@
+name: Post Claude Run Report
+description: >-
+  Uploads the claude-code-action execution_file as a run-report artifact and
+  posts the one-line Run Report comment (see nightly.yml and ADR 0007 in
+  oak-wildwood/cooperage) on the triggering issue or pull request, and on
+  the PR opened from branch_name too if that's a different thread. Shared
+  by nightly.yml and claude.yml so the comment format and posting logic
+  have one source of truth instead of two copies drifting apart.
+
+inputs:
+  execution_file:
+    description: The claude-code-action `execution_file` output.
+    required: true
+  model:
+    description: Model ID (or tier sentinel) the run used.
+    required: true
+  conclusion:
+    description: The claude-code-action `conclusion` output.
+    required: true
+  target_kind:
+    description: >-
+      Where to post the primary comment: "issue" (uses `gh issue comment`)
+      or "pr" (uses `gh pr comment` — `gh issue comment` errors on a PR
+      number).
+    required: true
+  target_number:
+    description: Issue or PR number for the primary comment.
+    required: true
+  artifact_name:
+    description: Name for the uploaded run-report artifact.
+    required: true
+  branch_name:
+    description: >-
+      Branch Claude pushed to, if any. When set, also looks up a PR opened
+      from it and comments there too — skipped if that PR is the same one
+      target_number already points at.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch the Run Report formatting script
+      shell: bash
+      run: |
+        curl -fsSL -o /tmp/format-run-report.sh \
+          https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/format-run-report.sh
+        chmod +x /tmp/format-run-report.sh
+
+    - name: Upload the Run Report artifact
+      if: always() && inputs.execution_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.execution_file }}
+
+    - name: Post the Run Report comment
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EXECUTION_FILE: ${{ inputs.execution_file }}
+        MODEL: ${{ inputs.model }}
+        CONCLUSION: ${{ inputs.conclusion }}
+        TARGET_KIND: ${{ inputs.target_kind }}
+        TARGET_NUMBER: ${{ inputs.target_number }}
+        BRANCH_NAME: ${{ inputs.branch_name }}
+      run: |
+        body=$(/tmp/format-run-report.sh "$EXECUTION_FILE" "$MODEL" "$CONCLUSION")
+
+        if [ "$TARGET_KIND" = "pr" ]; then
+          gh pr comment "$TARGET_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+        else
+          gh issue comment "$TARGET_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+        fi
+
+        if [ -n "$BRANCH_NAME" ]; then
+          pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$pr_number" ] && { [ "$TARGET_KIND" != "pr" ] || [ "$pr_number" != "$TARGET_NUMBER" ]; }; then
+            gh pr comment "$pr_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          fi
+        fi

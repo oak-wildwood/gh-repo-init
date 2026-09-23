@@ -341,9 +341,10 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
   fi
 
   # Both workflows grant Claude git push and gh pr create (see the allowedTools
-  # comments in the templates) — it can commit and open pull requests on its
-  # own. If branch protection was skipped above, nothing stops one of those
-  # pushes landing directly on $default_branch without review. Ask again here,
+  # comments in gh-repo-init's reusable claude.yml and nightly.yml) — it can
+  # commit and open pull requests on its own. If branch protection was
+  # skipped above, nothing stops one of those pushes landing directly on
+  # $default_branch without review. Ask again here,
   # in context, rather than leaving that connection for the owner to notice
   # later — defaulting to yes this time, since they've now said yes to the
   # thing this guards against.
