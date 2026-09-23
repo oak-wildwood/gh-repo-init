@@ -26,9 +26,11 @@ name: Claude Nightly (reusable)
 # sonnet. model:fable issues aren't run here at all — Fable-tier work is
 # judgment-heavy enough that it runs in a local session instead, so the
 # issue is handed back (claude-task removed, a comment left) rather than
-# started. The id mapping lives in one step ("Resolve the model tier from
-# the issue's labels") below — bump a model ID there, and in claude.yml's
-# matching keyword mapping, to change it everywhere.
+# started. The tier-to-model-ID table lives in scripts/resolve-model.sh in
+# this repo, fetched at run time — the same script claude.yml uses — so
+# bumping a model ID there changes it everywhere instead of two inline
+# tables drifting apart; see scripts/resolve-model.test.sh for its
+# fixtures.
 #
 # Every run of the claude job — success or failure — uploads the action's
 # execution_file as a `run-report-<issue>-<run_id>` artifact and posts a
@@ -37,11 +39,15 @@ name: Claude Nightly (reusable)
 # Cooperage's collector (Phase 1) downloads these artifacts to build usage
 # Estimates — see ADR 0007 in oak-wildwood/cooperage. No cost figures and
 # no issue text go in the comment, only what's needed for that estimate.
-# The formatting lives in scripts/format-run-report.sh in this repo,
-# fetched at run time for the same one-source-of-truth reason as the
-# blocker parsing above; see scripts/format-run-report.test.sh for its
-# fixtures. A Claude step that crashes before writing the execution file
-# still gets a `Run Report: unavailable · failure` comment.
+# Both the artifact upload and the comment posting live in
+# .github/actions/run-report in this repo, a composite action shared with
+# claude.yml so a fix reaches both instead of two copies of the same
+# steps. The comment formatting itself lives one level deeper, in
+# scripts/format-run-report.sh, fetched at run time for the same
+# one-source-of-truth reason as the blocker parsing above; see
+# scripts/format-run-report.test.sh for its fixtures. A Claude step that
+# crashes before writing the execution file still gets a `Run Report:
+# unavailable · failure` comment.
 
 on:
   workflow_call:
@@ -144,6 +150,13 @@ jobs:
           gh issue edit "${{ steps.pick.outputs.issue_number }}" \
             --repo "$GITHUB_REPOSITORY" --add-label claude-in-progress
 
+      - name: Fetch the model-resolution script
+        if: steps.pick.outputs.issue_number != ''
+        run: |
+          curl -fsSL -o /tmp/resolve-model.sh \
+            https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/resolve-model.sh
+          chmod +x /tmp/resolve-model.sh
+
       - name: Resolve the model tier from the issue's labels
         id: model
         if: steps.pick.outputs.issue_number != ''
@@ -154,15 +167,15 @@ jobs:
           labels=$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --json labels --jq '.labels[].name')
           if printf '%s\n' "$labels" | grep -qx "model:fable"; then
-            model=fable
+            tier=fable
           elif printf '%s\n' "$labels" | grep -qx "model:haiku"; then
-            model=claude-haiku-4-5-20251001
+            tier=haiku
           elif printf '%s\n' "$labels" | grep -qx "model:opus"; then
-            model=claude-opus-5-5
+            tier=opus
           else
-            model=claude-sonnet-5
+            tier=sonnet
           fi
-          echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "model=$(/tmp/resolve-model.sh "$tier")" >> "$GITHUB_OUTPUT"
 
       - name: Hand fable-tier issues back for a local session
         if: steps.model.outputs.model == 'fable'
@@ -192,12 +205,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Fetch the Run Report formatting script
-        run: |
-          curl -fsSL -o /tmp/format-run-report.sh \
-            https://raw.githubusercontent.com/oak-wildwood/gh-repo-init/main/scripts/format-run-report.sh
-          chmod +x /tmp/format-run-report.sh
-
       - name: Set up Node
         if: inputs.setup_node
         uses: actions/setup-node@v4
@@ -223,34 +230,17 @@ jobs:
             --model ${{ needs.pick-work.outputs.model }}
             --allowedTools "${{ inputs.allowed_tools }}"
 
-      - name: Upload the Run Report artifact
-        if: always() && steps.claude.outputs.execution_file != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: run-report-${{ needs.pick-work.outputs.issue_number }}-${{ github.run_id }}
-          path: ${{ steps.claude.outputs.execution_file }}
-
-      - name: Post the Run Report comment
+      - name: Post the Run Report
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-          MODEL: ${{ needs.pick-work.outputs.model }}
-          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
-          ISSUE_NUMBER: ${{ needs.pick-work.outputs.issue_number }}
-          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
-        run: |
-          body=$(/tmp/format-run-report.sh "$EXECUTION_FILE" "$MODEL" "$CONCLUSION")
-
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
-
-          if [ -n "$BRANCH_NAME" ]; then
-            pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" \
-              --json number --jq '.[0].number // empty')
-            if [ -n "$pr_number" ]; then
-              gh pr comment "$pr_number" --repo "$GITHUB_REPOSITORY" --body "$body"
-            fi
-          fi
+        uses: ./.github/actions/run-report
+        with:
+          execution_file: ${{ steps.claude.outputs.execution_file }}
+          model: ${{ needs.pick-work.outputs.model }}
+          conclusion: ${{ steps.claude.outputs.conclusion }}
+          target_kind: issue
+          target_number: ${{ needs.pick-work.outputs.issue_number }}
+          branch_name: ${{ steps.claude.outputs.branch_name }}
+          artifact_name: run-report-${{ needs.pick-work.outputs.issue_number }}-${{ github.run_id }}
 
       - name: Clear the claim on success
         if: success()
