@@ -167,18 +167,24 @@ rebase_merge="$(get allow_rebase_merge)"
 printf '%sCurrently: merge=%s squash=%s rebase=%s%s\n' \
   "$DIM" "$merge_commit" "$squash_merge" "$rebase_merge" "$RESET"
 
-# Recognise the three presets this tool itself would set, so a re-run on a
-# repo it already converged doesn't re-ask a question whose answer is sitting
-# right there in the API response. A combination outside the three (hand-set,
-# or from a repo this tool never touched) is left for a real answer — this is
-# detection of this tool's own prior work, not a guess at intent.
+# Recognise the presets this tool itself would set, so a re-run on a repo it
+# already converged doesn't re-ask a question whose answer is sitting right
+# there in the API response. A combination outside those is left for a real
+# answer — this is detection of this tool's own prior work, not a guess at
+# intent.
+#
+# "all" (merge=true squash=true rebase=true) is deliberately excluded: that's
+# also GitHub's own default for a brand-new repo, so seeing it tells us
+# nothing about whether this tool — or anyone — ever touched the setting.
+# Treating it as already-converged meant a fresh repo silently kept the
+# squash-rebase question, the commit-message format, and delete-branch-on-
+# merge all unasked. Always ask instead; --yes then lands on the recommended
+# squash-rebase.
 current_strategy=""
 if   [ "$merge_commit" = "false" ] && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "true" ]; then
   current_strategy="squash-rebase"
 elif [ "$merge_commit" = "false" ] && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "false" ]; then
   current_strategy="squash-only"
-elif [ "$merge_commit" = "true" ]  && [ "$squash_merge" = "true" ] && [ "$rebase_merge" = "true" ]; then
-  current_strategy="all"
 fi
 
 current_msg_style=""
