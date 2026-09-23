@@ -1,8 +1,8 @@
 #!/bin/sh
-# Fixtures for scripts/parse-blockers.sh. Run with: sh scripts/parse-blockers.test.sh
+# Fixtures for actions/lib/parse-blockers.sh. Run with: sh actions/lib/parse-blockers.test.sh
 set -eu
 
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 script="$dir/parse-blockers.sh"
 
 fail=0

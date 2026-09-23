@@ -1,0 +1,113 @@
+name: Claude Nightly — pick
+description: >-
+  Picks the Nightly's issue, claims it, and resolves its Model Tier. One
+  issue per run, oldest first among open claude-task issues with no open
+  Blocker, or the one named by `issue_number` (a human already chose it, so
+  the Blocker check is skipped). A Blocker is a body line matching `Blocked
+  by #N` or `Blocked by owner/repo#N` (see ../lib/parse-blockers.sh). The
+  picked issue gets `claude-in-progress` so nothing else grabs it;
+  actions/nightly-run takes it off again. The Model Tier label picks the
+  model (see ../lib/resolve-model.sh; no label means sonnet). model:fable
+  issues are handed back for a local session instead of run, and both
+  outputs come back empty.
+
+inputs:
+  issue_number:
+    description: Work this issue instead of picking. Empty for the normal pick.
+    required: false
+    default: ""
+
+outputs:
+  issue_number:
+    description: The claimed issue, or empty if there's nothing to run.
+    value: ${{ steps.model.outputs.model != 'fable' && steps.pick.outputs.issue_number || '' }}
+  model:
+    description: Model ID for the claimed issue, or empty.
+    value: ${{ steps.model.outputs.model != 'fable' && steps.model.outputs.model || '' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find the oldest unclaimed, unblocked claude-task issue
+      id: pick
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ inputs.issue_number }}
+        REPO: ${{ github.repository }}
+      run: |
+        if [ -n "$ISSUE_NUMBER" ]; then
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        candidates=$(gh issue list --repo "$REPO" \
+          --label claude-task --state open --limit 100 \
+          --json number,createdAt \
+          --jq 'sort_by(.createdAt) | .[].number')
+
+        issue=""
+        for n in $candidates; do
+          body=$(gh issue view "$n" --repo "$REPO" --json body -q .body)
+          blockers=$(printf '%s\n' "$body" | "$GITHUB_ACTION_PATH/../lib/parse-blockers.sh" "$REPO")
+
+          blocked=""
+          for ref in $blockers; do
+            ref_repo=${ref%#*}
+            ref_num=${ref##*#}
+            state=$(gh issue view "$ref_num" --repo "$ref_repo" --json state -q .state 2>/dev/null || echo UNKNOWN)
+            if [ "$state" != "CLOSED" ]; then
+              blocked=1
+              break
+            fi
+          done
+
+          if [ -z "$blocked" ]; then
+            issue="$n"
+            break
+          fi
+        done
+
+        echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
+
+    - name: Claim it
+      if: steps.pick.outputs.issue_number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ steps.pick.outputs.issue_number }}
+      run: |
+        gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label claude-in-progress
+
+    - name: Resolve the model tier from the issue's labels
+      id: model
+      if: steps.pick.outputs.issue_number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ steps.pick.outputs.issue_number }}
+      run: |
+        labels=$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+          --json labels --jq '.labels[].name')
+        if printf '%s\n' "$labels" | grep -qx "model:fable"; then
+          tier=fable
+        elif printf '%s\n' "$labels" | grep -qx "model:haiku"; then
+          tier=haiku
+        elif printf '%s\n' "$labels" | grep -qx "model:opus"; then
+          tier=opus
+        else
+          tier=sonnet
+        fi
+        echo "model=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$tier")" >> "$GITHUB_OUTPUT"
+
+    - name: Hand fable-tier issues back for a local session
+      if: steps.model.outputs.model == 'fable'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ steps.pick.outputs.issue_number }}
+      run: |
+        gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+          --remove-label claude-in-progress --remove-label claude-task
+        gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+          --body "Fable-tier Tasks run in local sessions"

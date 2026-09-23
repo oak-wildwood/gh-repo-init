@@ -1,0 +1,83 @@
+name: Claude Nightly — run
+description: >-
+  Runs Claude against the issue actions/nightly-pick claimed, posts the Run
+  Report (artifact + comment, see ../lib/post-run-report.sh), and releases
+  the claim whether the run succeeds or fails. A failure is simply retried
+  the following night. Expects the target repo to be checked out already.
+
+inputs:
+  issue_number:
+    description: The issue actions/nightly-pick claimed.
+    required: true
+  model:
+    description: Model ID actions/nightly-pick resolved.
+    required: true
+  allowed_tools:
+    description: --allowedTools string for the Claude Code action.
+    required: true
+  claude_code_oauth_token:
+    description: The caller's CLAUDE_CODE_OAUTH_TOKEN secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run Claude Code
+      id: claude
+      uses: anthropics/claude-code-action@v1
+      with:
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+
+        additional_permissions: |
+          actions: read
+
+        prompt: |
+          Work autonomously on issue #${{ inputs.issue_number }}.
+          Read AGENTS.md (and any other project instructions) first, and follow them.
+          Open a pull request when done, following this project's PR title convention.
+          Never modify anything under .github/workflows.
+
+        claude_args: |
+          --model ${{ inputs.model }}
+          --allowedTools "${{ inputs.allowed_tools }}"
+
+    - name: Upload the Run Report artifact
+      if: always() && steps.claude.outputs.execution_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: run-report-${{ inputs.issue_number }}-${{ github.run_id }}
+        path: ${{ steps.claude.outputs.execution_file }}
+
+    - name: Post the Run Report comment
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        MODEL: ${{ inputs.model }}
+        CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+        TARGET_KIND: issue
+        TARGET_NUMBER: ${{ inputs.issue_number }}
+        BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+      run: '"$GITHUB_ACTION_PATH/../lib/post-run-report.sh"'
+
+    - name: Clear the claim on success
+      if: success()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ inputs.issue_number }}
+      run: |
+        gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+
+    - name: Release the claim on failure
+      if: failure()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ inputs.issue_number }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label claude-in-progress
+        gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+          --body "Nightly run failed — unclaimed for retry tomorrow. Check the [job run]($RUN_URL) log: a usage/rate-limit message needs no action, an auth/token message means \`CLAUDE_CODE_OAUTH_TOKEN\` needs refreshing."
