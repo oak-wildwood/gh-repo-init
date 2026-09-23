@@ -71,5 +71,4 @@ runs:
           (github.event_name == 'issue_comment' && github.event.issue.pull_request))
           && 'pr' || 'issue' }}
         TARGET_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
       run: '"$GITHUB_ACTION_PATH/../lib/post-run-report.sh"'

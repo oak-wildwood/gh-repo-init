@@ -62,15 +62,14 @@ runs:
         path: ${{ steps.claude.outputs.execution_file }}
 
     - name: Ensure PR body includes Closes directive
-      if: always() && steps.claude.outputs.branch_name != ''
+      if: always()
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
-        BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
       run: |
-        pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" \
-          --json number --jq '.[0].number // empty')
+        pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+          --json number,body,createdAt | "$GITHUB_ACTION_PATH/../lib/find-pr-for-issue.sh" "$ISSUE_NUMBER")
         if [ -n "$pr_number" ]; then
           body=$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json body -q .body)
           if ! printf '%s\n' "$body" | grep -q "^Closes #$ISSUE_NUMBER\$"; then
@@ -90,7 +89,6 @@ runs:
         CONCLUSION: ${{ steps.claude.outputs.conclusion }}
         TARGET_KIND: issue
         TARGET_NUMBER: ${{ inputs.issue_number }}
-        BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
       run: '"$GITHUB_ACTION_PATH/../lib/post-run-report.sh"'
 
     - name: Clear the claim on success
