@@ -17,6 +17,12 @@ on:
 
 jobs:
   claude:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
     uses: oak-wildwood/gh-repo-init/.github/workflows/claude.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
