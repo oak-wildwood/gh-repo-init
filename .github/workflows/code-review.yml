@@ -32,13 +32,20 @@ on:
           --allowedTools string passed to the Claude Code action. No
           Write/Edit by design — this is a read-only reviewer. Includes
           the git/gh commands the skill needs to diff, look up the PR's
-          base branch and spec issue, and post its report. `Bash(cat:*)`
-          is for writing the report to a scratch temp file via heredoc
-          before `gh pr comment --body-file`, not for touching tracked
-          files — nothing here can stage, commit, or push.
+          base branch and spec issue, and post its report; `Read`,
+          `Glob` and `Grep` so it can find and read standards/spec files
+          (CODING_STANDARDS.md, CONTRIBUTING.md, docs/, specs/…) beyond
+          what `cat` alone can discover; and `Task`, which the
+          mattpocock-skills:code-review skill requires to spawn its
+          Standards and Spec sub-agents in parallel — without it the
+          skill fails partway through and never posts a report.
+          `Bash(cat:*)` is for writing the report to a scratch temp file
+          via heredoc before `gh pr comment --body-file`, not for
+          touching tracked files — nothing here can stage, commit, or
+          push.
         type: string
         default: >-
-          Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(cat:*)
+          Read,Glob,Grep,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(cat:*)
       setup_node:
         description: Set up Node before running Claude.
         type: boolean
