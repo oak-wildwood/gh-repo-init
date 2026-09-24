@@ -86,11 +86,13 @@ Adding the nightly cron creates the standard label set if any are missing: `clau
 `claude-in-progress`, `human-task`, and the four `model:*` tier labels.
 
 **A code-review action, on request.** Off by default — only offered once the Claude Code GitHub
-workflow is present. Runs [Matt Pocock's `code-review` skill](https://github.com/mattpocock/skills)
-against a pull request's diff since its base branch: a Standards axis (does the diff follow this
-repo's documented conventions?) and a Spec axis (does it match what the originating issue asked
-for?), reviewed by parallel sub-agents and posted as a single PR comment. Defaults to the Opus model
-tier, since review is exactly the judgment-heavy, subtle-bug-catching work that tier is for, and
+workflow is present. Reviews a pull request's diff since its base branch, in the style of
+[Matt Pocock's `code-review` skill](https://github.com/mattpocock/skills): a Standards axis (does
+the diff follow this repo's documented conventions?) and a Spec axis (does it match what the
+originating issue asked for?). The review instructions are inlined in the action rather than loaded
+from the skill at run time. Claude's final message is the review, and a plain workflow step posts it
+as a single PR comment, so a run that produces no review fails visibly instead of posting nothing.
+Defaults to the Opus model tier, since review is exactly the judgment-heavy, subtle-bug-catching work that tier is for, and
 usage stays bounded because nothing runs it automatically — trigger it with
 `gh workflow run code-review.yml -f pr_number=N`, or by commenting `@review` on the PR. Read-only by
 design: no `Write`/`Edit`, nothing pushes. `code-review.yml` is a thin caller into this repo's

@@ -1,10 +1,13 @@
-name: Code Review — mattpocock two-axis
+name: Code Review — two-axis (Standards/Spec)
 description: >-
-  Runs mattpocock-skills' code-review skill (github.com/mattpocock/skills)
-  against a PR's diff since its base branch, and posts the resulting
-  Standards/Spec report as a single PR comment, plus the usual Run Report
-  (see ../lib/post-run-report.sh). Read-only by design: no Write/Edit, no
-  push — this reviews, it never changes code. Expects the target repo to be
+  Reviews a PR's diff since its base branch on two axes: does it follow the
+  repo's documented standards, and does it do what its spec (the linked
+  issue, or the PR description) asks. Posts the report as a single PR
+  comment, plus the usual Run Report (see ../lib/post-run-report.sh).
+  Claude only reads and reports: its final message is the review, and a
+  plain shell step posts it, so a run that ends without a review fails the
+  job instead of silently posting nothing (gh-repo-init#42). Read-only by
+  design — this reviews, it never changes code. Expects the target repo to be
   checked out already, with the PR's branch checked out via `gh pr checkout`
   (needs full history: fetch-depth 0).
 
@@ -44,35 +47,66 @@ runs:
       with:
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
 
-        plugin_marketplaces: |
-          https://github.com/mattpocock/skills.git
-        plugins: |
-          mattpocock-skills@mattpocock
-
+        # The review is inlined here rather than run through a packaged
+        # skill. A third-party plugin skill installed at run time is
+        # unpinned code steering a job that holds a PR-writing token. Its
+        # tool needs (Skill, sub-agents, scratch files) change without
+        # this repo knowing. It's also written for an interactive session.
+        # Every one of those surfaced here as a permission denial that
+        # ended the run with nothing posted (#40, #41, #42).
         additional_permissions: |
           actions: read
 
         prompt: |
-          Review pull request #${{ inputs.pr_number }} using the mattpocock-skills:code-review skill.
+          You are reviewing pull request #${{ inputs.pr_number }}. You are
+          running non-interactively in CI: nobody will answer a question,
+          so never ask one. Where something is missing, say so in the
+          report and carry on.
 
-          The fixed point is this PR's base branch: find its name with
-          `gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName`,
-          then diff against `origin/<that branch>`. The repo is already
-          checked out on this PR's branch with full history fetched.
+          The repo is already checked out on this PR's branch with full
+          history. Find the base branch with
+          `gh pr view ${{ inputs.pr_number }} --json baseRefName,title,body`,
+          then review `git diff origin/<base>...HEAD` (and `git log` over
+          the same range for context).
 
-          Proceed non-interactively — do not ask the user anything. If the
-          Spec sub-agent can't find a spec, report that rather than asking
-          where it is.
+          Review the diff on two axes, one after the other, yourself — do
+          not spawn sub-agents:
 
-          When the two-axis report is complete, write it with the Write
-          tool to /tmp/code-review-report.md (do not use a Bash heredoc —
-          `Bash(cat:*)`'s permission check can't verify a heredoc's
-          contents and silently rejects it), then post it verbatim as a
-          single comment on PR #${{ inputs.pr_number }}
-          with `gh pr comment ${{ inputs.pr_number }} --body-file /tmp/code-review-report.md`.
+          1. **Standards** — does the change follow this repo's own
+             documented rules? Look for them in AGENTS.md, CLAUDE.md,
+             CONTRIBUTING.md, CODING_STANDARDS.md, README.md, docs/ and
+             similar, and hold the diff to what they actually say. Don't
+             invent standards the repo never wrote down. If it has none,
+             say so and skip this axis.
+          2. **Spec** — does the change do what it was asked to do, and
+             nothing it wasn't? The spec is the issue the PR body links
+             (e.g. "Closes #N", read with `gh issue view N`), or failing
+             that the PR description itself. Flag missing requirements,
+             unrequested scope, and behaviour that contradicts the spec.
+             If there is no spec, say so and skip this axis.
 
-          This is a read-only review: do not modify, stage, or commit any
-          tracked file in the repository.
+          Cite every finding as `path:line` and say concretely what is
+          wrong. Only report things you verified in the code. No findings
+          on an axis is a fine answer: say "No findings".
+
+          If a tool call is denied, don't retry it or look for a way
+          around it. Use the tools you do have, and note in the report
+          anything you couldn't check.
+
+          This is a read-only review. Do not modify, stage or commit any
+          file, and do not post anything to GitHub yourself — a later
+          step posts your review for you.
+
+          Your final message is posted verbatim as the PR comment, so make
+          it only the review, in Markdown, with nothing before or after it:
+
+          ## Code review
+
+          ### Standards
+          <findings, or "No findings", or why this axis was skipped>
+
+          ### Spec
+          <findings, or "No findings", or why this axis was skipped>
 
         claude_args: |
           --model ${{ steps.model.outputs.model }}
@@ -89,6 +123,27 @@ runs:
           echo "::error::The Claude step reported success but produced no execution_file/conclusion — it likely skipped itself (e.g. a workflow-validation mismatch between the caller's pinned ref and this repo's default branch) rather than actually running." >&2
           exit 1
         fi
+
+    # Posting is deterministic, so it lives here rather than in the model.
+    # In agent mode (any run with a `prompt`), claude-code-action posts
+    # none of Claude's own output. So a run that gave up and explained why
+    # in its final message used to look like "posted nothing" (#42).
+    # Reading that message here means an explanation still gets posted,
+    # and a run that ended with no message at all fails the job.
+    - name: Post the review
+      if: steps.claude.outcome == 'success'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        review="$RUNNER_TEMP/code-review-$PR_NUMBER.md"
+        if ! sh "$GITHUB_ACTION_PATH/../lib/extract-final-message.sh" "$EXECUTION_FILE" >"$review"; then
+          echo "::error::The review run produced no usable final message, so there is no review to post — see the run-report artifact for the transcript." >&2
+          exit 1
+        fi
+        gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$review"
 
     - name: Upload the Run Report artifact
       if: always() && steps.claude.outputs.execution_file != ''

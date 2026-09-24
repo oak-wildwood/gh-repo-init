@@ -355,7 +355,7 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "code-review.yml exists, leaving it alone"
   elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
     skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable code review"
-  elif [ "$WITH_CODE_REVIEW" = true ] || ask_yn "Add a code-review action (mattpocock's two-axis Standards/Spec skill, run on request against a PR)?" "n"; then
+  elif [ "$WITH_CODE_REVIEW" = true ] || ask_yn "Add a code-review action (a two-axis Standards/Spec review, run on request against a PR)?" "n"; then
     want_code_review=true
   fi
 
