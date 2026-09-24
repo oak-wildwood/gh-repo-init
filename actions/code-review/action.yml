@@ -1,0 +1,90 @@
+name: Code Review — mattpocock two-axis
+description: >-
+  Runs mattpocock-skills' code-review skill (github.com/mattpocock/skills)
+  against a PR's diff since its base branch, and posts the resulting
+  Standards/Spec report as a single PR comment, plus the usual Run Report
+  (see ../lib/post-run-report.sh). Read-only by design: no Write/Edit, no
+  push — this reviews, it never changes code. Expects the target repo to be
+  checked out already, with the PR's branch checked out via `gh pr checkout`
+  (needs full history: fetch-depth 0).
+
+inputs:
+  pr_number:
+    description: The PR to review.
+    required: true
+  model:
+    description: Model Tier (haiku, sonnet or opus) resolved via ../lib/resolve-model.sh.
+    required: false
+    default: opus
+  allowed_tools:
+    description: --allowedTools string for the Claude Code action.
+    required: true
+  claude_code_oauth_token:
+    description: The caller's CLAUDE_CODE_OAUTH_TOKEN secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the model
+      id: model
+      shell: bash
+      env:
+        TIER: ${{ inputs.model }}
+      run: echo "id=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$TIER")" >> "$GITHUB_OUTPUT"
+
+    - name: Run the code review
+      id: claude
+      uses: anthropics/claude-code-action@v1
+      with:
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+
+        plugin_marketplaces: |
+          https://github.com/mattpocock/skills.git
+        plugins: |
+          mattpocock-skills@mattpocock
+
+        additional_permissions: |
+          actions: read
+
+        prompt: |
+          Review pull request #${{ inputs.pr_number }} using the mattpocock-skills:code-review skill.
+
+          The fixed point is this PR's base branch: find its name with
+          `gh pr view ${{ inputs.pr_number }} --json baseRefName -q .baseRefName`,
+          then diff against `origin/<that branch>`. The repo is already
+          checked out on this PR's branch with full history fetched.
+
+          Proceed non-interactively — do not ask the user anything. If the
+          Spec sub-agent can't find a spec, report that rather than asking
+          where it is.
+
+          When the two-axis report is complete, post it verbatim as a
+          single comment on PR #${{ inputs.pr_number }} with
+          `gh pr comment ${{ inputs.pr_number }} --body-file <path>`.
+
+          This is a read-only review: do not modify, stage, or commit any
+          files.
+
+        claude_args: |
+          --model ${{ steps.model.outputs.id }}
+          --allowedTools "${{ inputs.allowed_tools }}"
+
+    - name: Upload the Run Report artifact
+      if: always() && steps.claude.outputs.execution_file != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: run-report-${{ inputs.pr_number }}-${{ github.run_id }}
+        path: ${{ steps.claude.outputs.execution_file }}
+
+    - name: Post the Run Report comment
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        MODEL: ${{ steps.model.outputs.id }}
+        CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+        TARGET_KIND: pr
+        TARGET_NUMBER: ${{ inputs.pr_number }}
+      run: '"$GITHUB_ACTION_PATH/../lib/post-run-report.sh"'
