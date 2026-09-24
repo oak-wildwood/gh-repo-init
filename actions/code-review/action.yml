@@ -31,7 +31,7 @@ runs:
       shell: bash
       env:
         TIER: ${{ inputs.model }}
-      run: echo "id=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$TIER")" >> "$GITHUB_OUTPUT"
+      run: echo "model=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$TIER")" >> "$GITHUB_OUTPUT"
 
     - name: Run the code review
       id: claude
@@ -59,16 +59,30 @@ runs:
           Spec sub-agent can't find a spec, report that rather than asking
           where it is.
 
-          When the two-axis report is complete, post it verbatim as a
-          single comment on PR #${{ inputs.pr_number }} with
-          `gh pr comment ${{ inputs.pr_number }} --body-file <path>`.
+          When the two-axis report is complete, write it to a temp file
+          with `cat > /tmp/code-review-report.md <<'REPORT_EOF'` (heredoc,
+          so you don't need to hand-escape the report's own quoting), then
+          post it verbatim as a single comment on PR #${{ inputs.pr_number }}
+          with `gh pr comment ${{ inputs.pr_number }} --body-file /tmp/code-review-report.md`.
 
           This is a read-only review: do not modify, stage, or commit any
-          files.
+          tracked file in the repository.
 
         claude_args: |
-          --model ${{ steps.model.outputs.id }}
+          --model ${{ steps.model.outputs.model }}
           --allowedTools "${{ inputs.allowed_tools }}"
+
+    - name: Fail the job if the Claude step was skipped
+      if: steps.claude.outcome == 'success'
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+      run: |
+        if [ -z "$EXECUTION_FILE" ] || [ -z "$CONCLUSION" ]; then
+          echo "::error::The Claude step reported success but produced no execution_file/conclusion — it likely skipped itself (e.g. a workflow-validation mismatch between the caller's pinned ref and this repo's default branch) rather than actually running." >&2
+          exit 1
+        fi
 
     - name: Upload the Run Report artifact
       if: always() && steps.claude.outputs.execution_file != ''
@@ -83,7 +97,7 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-        MODEL: ${{ steps.model.outputs.id }}
+        MODEL: ${{ steps.model.outputs.model }}
         CONCLUSION: ${{ steps.claude.outputs.conclusion }}
         TARGET_KIND: pr
         TARGET_NUMBER: ${{ inputs.pr_number }}
