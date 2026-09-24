@@ -1,0 +1,37 @@
+name: Code Review
+
+# Thin caller for oak-wildwood/gh-repo-init's reusable code-review
+# workflow, pinned to @v1 so a fix there doesn't change this repo's
+# behaviour until the tag moves — see that repo's actions/code-review for
+# what actually runs. Runs mattpocock-skills' two-axis (Standards/Spec)
+# code-review skill against a PR and posts its report as a comment. Needs
+# the same GitHub App + CLAUDE_CODE_OAUTH_TOKEN as claude.yml.
+#
+# Trigger it with: gh workflow run code-review.yml -f pr_number=N
+# or by commenting "@review" on a pull request.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review.
+        required: true
+  issue_comment:
+    types: [created]
+
+jobs:
+  code-review:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null && contains(github.event.comment.body, '@review'))
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    uses: oak-wildwood/gh-repo-init/.github/workflows/code-review.yml@v1
+    with:
+      pr_number: ${{ inputs.pr_number }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

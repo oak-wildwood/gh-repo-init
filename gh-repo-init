@@ -318,7 +318,7 @@ fi
 
 head2 "Agent instruction files"
 want_agents=false; want_claude=false; want_workflow=false; want_gitignore=false
-want_prtitle=false; want_nightly=false
+want_prtitle=false; want_nightly=false; want_code_review=false
 in_worktree=false
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   in_worktree=true
@@ -341,6 +341,17 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     want_nightly=true
     reply_cron="$(ask_text "Cron schedule for the nightly run? GitHub cron runs in UTC. (enter for 0 9 * * * — ~2am Pacific)")"
     [ -n "$reply_cron" ] && nightly_cron="$reply_cron"
+  fi
+
+  # Reuses claude.yml's GitHub App + CLAUDE_CODE_OAUTH_TOKEN too. Unlike the
+  # other two, this one is read-only (no Write/Edit, nothing pushes) — it's
+  # left out of the branch-protection nudge below on purpose.
+  if [ -e "$root/.github/workflows/code-review.yml" ]; then
+    skip "code-review.yml exists, leaving it alone"
+  elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
+    skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable code review"
+  elif ask_yn "Add a code-review action (mattpocock's two-axis Standards/Spec skill, run on request against a PR)?" "n"; then
+    want_code_review=true
   fi
 
   # Both workflows grant Claude git push and gh pr create (see the allowedTools
@@ -554,6 +565,7 @@ if [ "$in_worktree" = true ]; then
       ok "created .github/workflows/claude-nightly.yml"
     fi
   fi
+  [ "$want_code_review" = true ] && place "templates/workflows/code-review.yml" ".github/workflows/code-review.yml"
   [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
   [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
   [ "$want_vercel" = true ]   && place "templates/vercel.json" "vercel.json"
@@ -653,6 +665,10 @@ if [ "$want_nightly" = true ]; then
   printf '  → tag an issue claude-task to queue it for the next scheduled run,\n'
   printf '    or trigger a run now with workflow_dispatch (pass issue_number\n'
   printf '    to target one directly) to try it early.\n'
+fi
+if [ "$want_code_review" = true ]; then
+  printf '  → trigger it with: gh workflow run code-review.yml -f pr_number=N\n'
+  printf '    or by commenting "@review" on a pull request.\n'
 fi
 if [ "$want_prtitle" = true ]; then
   printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'

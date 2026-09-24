@@ -1,0 +1,104 @@
+name: Code Review (reusable)
+
+# Runs mattpocock-skills' two-axis (Standards/Spec) code-review skill
+# against a PR's diff since its base branch, and posts the report as a
+# single PR comment. Callers stay ~20 lines: see
+# templates/workflows/code-review.yml. Behaviour lives in
+# actions/code-review, run from a checkout of this repo at
+# job.workflow_sha so a pinned caller runs pinned behaviour (see ADR 0014
+# in oak-wildwood/cooperage).
+#
+# Read-only by design: the allowed_tools default grants no Write/Edit and
+# nothing pushes — this reviews, it never changes code.
+#
+# Triggered by workflow_dispatch (pass pr_number to pick the PR) or by
+# commenting "@review" on a pull request.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: >-
+          PR to review. Falls back to the triggering issue_comment's PR
+          number when unset (the @review comment-mention path).
+        type: string
+        default: ""
+      model:
+        description: Model Tier for the review (haiku, sonnet or opus).
+        type: string
+        default: opus
+      allowed_tools:
+        description: >-
+          --allowedTools string passed to the Claude Code action. No
+          Write/Edit by design — this is a read-only reviewer. Includes
+          the git/gh commands the skill needs to diff, look up the PR's
+          base branch and spec issue, and post its report. `Bash(cat:*)`
+          is for writing the report to a scratch temp file via heredoc
+          before `gh pr comment --body-file`, not for touching tracked
+          files — nothing here can stage, commit, or push.
+        type: string
+        default: >-
+          Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(cat:*)
+      setup_node:
+        description: Set up Node before running Claude.
+        type: boolean
+        default: true
+      node_version:
+        description: Node version to set up, when setup_node is true.
+        type: string
+        default: "20"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  review:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@review'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read # lets Claude read CI results on pull requests
+    steps:
+      - name: Resolve the PR number
+        id: pr
+        env:
+          PR_NUMBER: ${{ inputs.pr_number || github.event.issue.number }}
+        run: echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check out gh-repo-init at this workflow's commit
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .gh-repo-init
+          persist-credentials: false
+
+      - name: Check out the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: gh pr checkout "$PR_NUMBER"
+
+      - name: Set up Node
+        if: inputs.setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Run the review
+        uses: ./.gh-repo-init/actions/code-review
+        with:
+          pr_number: ${{ steps.pr.outputs.number }}
+          model: ${{ inputs.model }}
+          allowed_tools: ${{ inputs.allowed_tools }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
