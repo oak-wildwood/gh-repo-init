@@ -64,6 +64,33 @@ jobs:
       id-token: write
       actions: read # lets Claude read CI results on pull requests
     steps:
+      # workflow_dispatch needs no check here: GitHub already requires
+      # write access to trigger one. The @review comment path doesn't have
+      # that guarantee, so check before spending any CI time on it —
+      # claude-code-action's own check (see actions/claude's note on the
+      # same pattern) would reject a non-collaborator too, but only after
+      # this job already paid for checkout and Node setup. This is a
+      # fast-path optimization, not a replacement for that check: on
+      # anything ambiguous (a bot actor, an API error) it defers rather
+      # than guessing, since a false rejection here would break a
+      # legitimate allowed_bots actor that only the later check recognizes.
+      - name: Reject non-collaborators before spending any CI time
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" -q .permission 2>/dev/null) || {
+            echo "Couldn't resolve $ACTOR's permission level (may be a bot) — deferring to claude-code-action's own check."
+            exit 0
+          }
+          case "$permission" in
+            admin|write) exit 0 ;;
+            *)
+              echo "::error::$ACTOR has '$permission' access, not write — refusing before checkout."
+              exit 1 ;;
+          esac
+
       - name: Resolve the PR number
         id: pr
         env:

@@ -36,7 +36,12 @@ runs:
         echo "model=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$tier")" >> "$GITHUB_OUTPUT"
 
     # On a public repo this is safe by default: claude-code-action only runs
-    # for users with write access. Never set allowed_non_write_users here.
+    # for users with write access (checked unconditionally for any
+    # comment/issue/review event, in src/entrypoints/run.ts, regardless of
+    # trigger phrase). The caller workflow also checks this before
+    # checkout, so a non-collaborator's comment never reaches this step at
+    # all — but never set allowed_non_write_users here; that removes
+    # claude-code-action's own check too, not just the caller's early one.
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
