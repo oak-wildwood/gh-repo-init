@@ -33,6 +33,11 @@ runs:
         TIER: ${{ inputs.model }}
       run: echo "model=$("$GITHUB_ACTION_PATH/../lib/resolve-model.sh" "$TIER")" >> "$GITHUB_OUTPUT"
 
+    # On a public repo this is safe by default: claude-code-action only
+    # runs for users with write access (checked unconditionally for any
+    # comment/issue/review event, regardless of trigger phrase — see the
+    # note in actions/claude/action.yml). The caller workflow also checks
+    # this before checkout, for the @review comment path.
     - name: Run the code review
       id: claude
       uses: anthropics/claude-code-action@v1

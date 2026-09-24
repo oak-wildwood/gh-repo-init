@@ -31,7 +31,12 @@ you want, and applies it.
 gh repo-init --dry-run           # show what would change, touch nothing
 gh repo-init --yes               # take the recommended answer to everything
 gh repo-init --repo owner/name   # target a repo you're not standing in
+gh repo-init --yes --with-code-review   # --yes, but also add the code-review action
 ```
+
+`--with-code-review` exists because the code-review action's recommended answer is *no* (see
+below) — `--yes` alone can never add it, so this is the only way to opt in without an interactive
+terminal.
 
 Re-running is safe. Settings converge, and existing files are never overwritten.
 
@@ -89,7 +94,9 @@ tier, since review is exactly the judgment-heavy, subtle-bug-catching work that 
 usage stays bounded because nothing runs it automatically — trigger it with
 `gh workflow run code-review.yml -f pr_number=N`, or by commenting `@review` on the PR. Read-only by
 design: no `Write`/`Edit`, nothing pushes. `code-review.yml` is a thin caller into this repo's
-reusable `.github/workflows/code-review.yml`, pinned the same way as `claude.yml`.
+reusable `.github/workflows/code-review.yml`, pinned the same way as `claude.yml`. `--yes` skips
+this one (its recommended answer is *no*) — pass `--with-code-review` too if you want it added
+non-interactively.
 
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch

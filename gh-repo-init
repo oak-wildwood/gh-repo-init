@@ -17,6 +17,7 @@ EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO=""
 DRY_RUN=false
 ASSUME_YES=false
+WITH_CODE_REVIEW=false
 
 # ---------------------------------------------------------------- output ---
 
@@ -43,6 +44,9 @@ ${BOLD}USAGE${RESET}
 ${BOLD}OPTIONS${RESET}
   -R, --repo OWNER/NAME   Target repo. Defaults to the current directory's remote.
   -y, --yes               Take the recommended answer to every question.
+      --with-code-review  Add the code-review action even under --yes, whose
+                           recommended answer is otherwise no (there's no
+                           other way to opt in non-interactively).
       --dry-run           Show what would change; touch nothing.
   -h, --help              Show this help.
   -v, --version           Show version.
@@ -66,6 +70,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -R|--repo)       REPO="${2:-}"; shift 2 ;;
     -y|--yes)        ASSUME_YES=true; shift ;;
+    --with-code-review) WITH_CODE_REVIEW=true; shift ;;
     --dry-run)       DRY_RUN=true; shift ;;
     -h|--help)       usage; exit 0 ;;
     -v|--version)    printf '%s\n' "$VERSION"; exit 0 ;;
@@ -350,7 +355,7 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "code-review.yml exists, leaving it alone"
   elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
     skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable code review"
-  elif ask_yn "Add a code-review action (mattpocock's two-axis Standards/Spec skill, run on request against a PR)?" "n"; then
+  elif [ "$WITH_CODE_REVIEW" = true ] || ask_yn "Add a code-review action (mattpocock's two-axis Standards/Spec skill, run on request against a PR)?" "n"; then
     want_code_review=true
   fi
 

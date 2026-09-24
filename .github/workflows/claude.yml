@@ -55,6 +55,28 @@ jobs:
       id-token: write
       actions: read # lets Claude read CI results on pull requests
     steps:
+      # A fast-path optimization, not a replacement for claude-code-action's
+      # own check below — it still runs regardless. On anything ambiguous
+      # (the actor isn't a plain user account, e.g. a bot; or the API call
+      # itself fails) this defers rather than guessing, since a false
+      # rejection here would break a legitimate allowed_bots actor that
+      # only that later, more thorough check knows how to recognize.
+      - name: Reject non-collaborators before spending any CI time
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" -q .permission 2>/dev/null) || {
+            echo "Couldn't resolve $ACTOR's permission level (may be a bot) — deferring to claude-code-action's own check."
+            exit 0
+          }
+          case "$permission" in
+            admin|write) exit 0 ;;
+            *)
+              echo "::error::$ACTOR has '$permission' access, not write — refusing before checkout. claude-code-action's own check would reject this too, but only after spinning up the job."
+              exit 1 ;;
+          esac
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
