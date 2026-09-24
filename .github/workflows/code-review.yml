@@ -35,17 +35,21 @@ on:
           base branch and spec issue, and post its report; `Read`,
           `Glob` and `Grep` so it can find and read standards/spec files
           (CODING_STANDARDS.md, CONTRIBUTING.md, docs/, specs/…) beyond
-          what `cat` alone can discover; and `Task`, which the
+          what `cat` alone can discover; `Task`, which the
           mattpocock-skills:code-review skill requires to spawn its
           Standards and Spec sub-agents in parallel — without it the
-          skill fails partway through and never posts a report.
-          `Bash(cat:*)` is for writing the report to a scratch temp file
-          via heredoc before `gh pr comment --body-file`, not for
-          touching tracked files — nothing here can stage, commit, or
-          push.
+          skill fails partway through and never posts a report; and
+          `Write`, which it uses to save the report to a scratch temp
+          file before `gh pr comment --body-file` (a Bash heredoc
+          doesn't work here: `Bash(cat:*)`'s permission check can't
+          verify a heredoc's contents and silently rejects it; a
+          path-scoped `Write(/tmp/**)` isn't recognized either, so this
+          grants Write unscoped). Still no push step in this workflow,
+          and the prompt tells it not to touch tracked files, on a
+          throwaway CI checkout either way.
         type: string
         default: >-
-          Read,Glob,Grep,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(cat:*)
+          Read,Glob,Grep,Task,Write,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*)
       setup_node:
         description: Set up Node before running Claude.
         type: boolean

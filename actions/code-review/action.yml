@@ -64,10 +64,11 @@ runs:
           Spec sub-agent can't find a spec, report that rather than asking
           where it is.
 
-          When the two-axis report is complete, write it to a temp file
-          with `cat > /tmp/code-review-report.md <<'REPORT_EOF'` (heredoc,
-          so you don't need to hand-escape the report's own quoting), then
-          post it verbatim as a single comment on PR #${{ inputs.pr_number }}
+          When the two-axis report is complete, write it with the Write
+          tool to /tmp/code-review-report.md (do not use a Bash heredoc —
+          `Bash(cat:*)`'s permission check can't verify a heredoc's
+          contents and silently rejects it), then post it verbatim as a
+          single comment on PR #${{ inputs.pr_number }}
           with `gh pr comment ${{ inputs.pr_number }} --body-file /tmp/code-review-report.md`.
 
           This is a read-only review: do not modify, stage, or commit any
