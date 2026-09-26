@@ -90,6 +90,15 @@ runs:
           exit 1
         fi
 
+    # A review that gives up still reports success, and its reason only
+    # lives in the execution file — surface it where a human will look.
+    - name: Explain how the run ended
+      if: always()
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      run: 'sh "$GITHUB_ACTION_PATH/../lib/explain-run.sh" "$EXECUTION_FILE" >> "$GITHUB_STEP_SUMMARY"'
+
     - name: Upload the Run Report artifact
       if: always() && steps.claude.outputs.execution_file != ''
       uses: actions/upload-artifact@v4
