@@ -2,7 +2,7 @@ name: Code Review (self)
 
 # Thin caller for oak-wildwood/gh-repo-init's reusable code-review
 # workflow — see that repo's actions/code-review for what actually runs,
-# pinned to @v1 so a fix there doesn't change this repo's behaviour until
+# pinned to @v1 so a fix there doesn't change this repo's behavior until
 # the tag moves. Needs the same GitHub App + CLAUDE_CODE_OAUTH_TOKEN as
 # claude.yml. The default allowed_tools already covers everything this
 # read-only reviewer needs, so unlike self-claude.yml/self-nightly.yml

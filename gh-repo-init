@@ -2,7 +2,7 @@
 #
 # gh-repo-init — walk a GitHub repository up to a consistent baseline.
 #
-# GitHub has no account-level or template-level defaults for merge behaviour,
+# GitHub has no account-level or template-level defaults for merge behavior,
 # so every new repo starts on stock settings and every maintainer re-picks the
 # same handful of options by hand. This asks once and applies the answers.
 #
@@ -172,7 +172,7 @@ rebase_merge="$(get allow_rebase_merge)"
 printf '%sCurrently: merge=%s squash=%s rebase=%s%s\n' \
   "$DIM" "$merge_commit" "$squash_merge" "$rebase_merge" "$RESET"
 
-# Recognise the presets this tool itself would set, so a re-run on a repo it
+# Recognize the presets this tool itself would set, so a re-run on a repo it
 # already converged doesn't re-ask a question whose answer is sitting right
 # there in the API response. A combination outside those is left for a real
 # answer — this is detection of this tool's own prior work, not a guess at

@@ -73,6 +73,12 @@ running it.
 Never widen what the script changes without a prompt controlling it. Someone running this on a repo
 they care about should be able to predict every write from the questions they answered.
 
+### Spelling
+
+Write American English everywhere: code, comments, docs, commit messages and PR text. That means
+behavior, authorization, optimize, judgment and defense, not behaviour, authorisation, optimise,
+judgement or defence.
+
 ### PR titles become commit messages
 
 This repo squash-merges, and the squashed commit takes the **PR title** as its subject with an
@@ -89,4 +95,4 @@ docs: explain why no skill ships with this
 ```
 
 Individual commits on the branch don't survive the squash, so use them to separate things worth
-reviewing apart and don't agonise over their wording.
+reviewing apart and don't agonize over their wording.
