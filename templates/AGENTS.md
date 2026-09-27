@@ -64,6 +64,12 @@ Instructions for AI coding agents working in this repository. Humans should read
   scripts or in a standard invocation for your tooling.
 -->
 
+### Spelling
+
+Write American English everywhere: code, comments, docs, commit messages and PR text. That means
+behavior, authorization, optimize, judgment and defense, not behaviour, authorisation, optimise,
+judgement or defence.
+
 ### PR titles become commit messages
 
 This repo squash-merges, and the squashed commit takes the **PR title** as its subject with an
@@ -89,4 +95,4 @@ that carries the point of the PR rather than the one touching the most files.
 
 Individual commits on the branch don't survive the squash, so they're for the reviewer rather than
 for history. Use them to separate things worth reviewing apart — a mechanical reformat from a
-behavioural change, say — and don't agonise over their wording.
+behavioral change, say — and don't agonize over their wording.

@@ -2,11 +2,11 @@ name: Claude Nightly (reusable)
 
 # The Nightly behind every Tracked Repo's cron. Callers stay ~15 lines: see
 # templates/workflows/claude-nightly.yml. This file is deliberately thin —
-# inputs, permissions, checkout — and the behaviour lives in
+# inputs, permissions, checkout — and the behavior lives in
 # actions/nightly-pick and actions/nightly-run, where the Nightly may
 # maintain it (see ADR 0014 in oak-wildwood/cooperage). Both are run from a
 # checkout of this repo at job.workflow_sha, the exact commit the caller's
-# ref (@v1, @main…) resolved to, so a pinned caller runs pinned behaviour.
+# ref (@v1, @main…) resolved to, so a pinned caller runs pinned behavior.
 
 on:
   workflow_call:

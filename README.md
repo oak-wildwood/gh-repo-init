@@ -69,7 +69,7 @@ workflow, and `.gitignore` entries for agent-local files. Each is asked about se
 to yes for the two Claude workflows, since every recent repo has wanted them) and skipped if already
 present. Like `claude-nightly.yml`, `claude.yml` is a thin caller into this repo's reusable
 `.github/workflows/claude.yml`, pinned to a `@v1`-style tag so a fix there doesn't change your repo's
-behaviour until you move the pin.
+behavior until you move the pin.
 
 **A nightly cron for unattended work.** Only offered once the Claude Code GitHub workflow is
 present, since it reuses that same GitHub App and `CLAUDE_CODE_OAUTH_TOKEN`. Asks for the cron

@@ -3,9 +3,9 @@ name: Code Review (reusable)
 # Runs mattpocock-skills' two-axis (Standards/Spec) code-review skill
 # against a PR's diff since its base branch, and posts the report as a
 # single PR comment. Callers stay ~20 lines: see
-# templates/workflows/code-review.yml. Behaviour lives in
+# templates/workflows/code-review.yml. Behavior lives in
 # actions/code-review, run from a checkout of this repo at
-# job.workflow_sha so a pinned caller runs pinned behaviour (see ADR 0014
+# job.workflow_sha so a pinned caller runs pinned behavior (see ADR 0014
 # in oak-wildwood/cooperage).
 #
 # Read-only by design: the allowed_tools default grants no Write/Edit and

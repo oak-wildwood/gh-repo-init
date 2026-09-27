@@ -2,9 +2,9 @@ name: Claude Code (reusable)
 
 # The @claude-mention trigger behind every Tracked Repo. Callers stay ~10
 # lines: see templates/workflows/claude.yml. This file is deliberately thin
-# — inputs, permissions, checkout — and the behaviour lives in
+# — inputs, permissions, checkout — and the behavior lives in
 # actions/claude, run from a checkout of this repo at job.workflow_sha so a
-# pinned caller runs pinned behaviour (see ADR 0014 in
+# pinned caller runs pinned behavior (see ADR 0014 in
 # oak-wildwood/cooperage).
 
 on:
