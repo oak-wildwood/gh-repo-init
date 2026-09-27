@@ -2,14 +2,21 @@ name: Claude Nightly — pick
 description: >-
   Picks the Nightly's issue, claims it, and resolves its Model Tier. One
   issue per run, oldest first among open claude-task issues with no open
-  Blocker, or the one named by `issue_number` (a human already chose it, so
-  the Blocker check is skipped). A Blocker is a body line matching `Blocked
-  by #N` or `Blocked by owner/repo#N` (see ../lib/parse-blockers.sh). The
-  picked issue gets `claude-in-progress` so nothing else grabs it;
-  actions/nightly-run takes it off again. The Model Tier label picks the
-  model (see ../lib/resolve-model.sh; no label means sonnet). model:fable
-  issues are handed back for a local session instead of run, and both
-  outputs come back empty.
+  Blocker and no open PR already referencing them, or the one named by
+  `issue_number` (a human already chose it, so both checks are skipped). A
+  Blocker is a body line matching `Blocked by #N` or `Blocked by
+  owner/repo#N` (see ../lib/parse-blockers.sh). The open-PR check (see
+  ../lib/find-pr-for-issue.sh) exists because nightly-run clears
+  `claude-in-progress` as soon as a run succeeds, not as soon as its PR
+  merges — without it, an issue whose PR is still open and unreviewed looks
+  unclaimed again on the next scheduled run and gets a second PR opened
+  against it. It goes through the Issues API rather than `gh pr list`
+  because a pull request is also an issue, and this job is only granted
+  `issues: write`. The picked issue gets `claude-in-progress` so nothing
+  else grabs it; actions/nightly-run takes it off again. The Model Tier
+  label picks the model (see ../lib/resolve-model.sh; no label means
+  sonnet). model:fable issues are handed back for a local session instead
+  of run, and both outputs come back empty.
 
 inputs:
   issue_number:
@@ -46,8 +53,19 @@ runs:
           --json number,createdAt \
           --jq 'sort_by(.createdAt) | .[].number')
 
+        # `gh pr list` needs `pull-requests: read`, which this job doesn't
+        # have. A pull request is also an issue, so the Issues API sees it
+        # under the `issues: write` this job already has.
+        open_prs=$(gh api "repos/$REPO/issues" --paginate -f state=open -f per_page=100 \
+          --jq '[.[] | select(.pull_request) | {number, body, createdAt: .created_at}]' \
+          | jq -s 'add // []')
+
         issue=""
         for n in $candidates; do
+          if [ -n "$(printf '%s' "$open_prs" | "$GITHUB_ACTION_PATH/../lib/find-pr-for-issue.sh" "$n")" ]; then
+            continue
+          fi
+
           body=$(gh issue view "$n" --repo "$REPO" --json body -q .body)
           blockers=$(printf '%s\n' "$body" | "$GITHUB_ACTION_PATH/../lib/parse-blockers.sh" "$REPO")
 
