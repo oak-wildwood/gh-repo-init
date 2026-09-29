@@ -24,13 +24,13 @@ cd your-repo
 gh repo-init
 ```
 
-It reads the repo from the current directory's remote, shows you what's currently set, asks what
-you want, and applies it.
+Run it from inside a clone of the repo you want to set up. It reads the repo from that checkout's
+remote, shows you what's currently set, asks what you want, and applies it. Settings and files always
+go to that same repo; there's no option to point it at a different one.
 
 ```bash
 gh repo-init --dry-run           # show what would change, touch nothing
 gh repo-init --yes               # take the recommended answer to everything
-gh repo-init --repo owner/name   # target a repo you're not standing in
 ```
 
 Re-running is safe. Settings converge, and existing files are never overwritten.
