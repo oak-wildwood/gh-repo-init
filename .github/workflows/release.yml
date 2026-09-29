@@ -1,0 +1,53 @@
+name: Release
+
+# Moves a floating major-version tag (e.g. v1) to point at the commit this
+# workflow runs from, so a fix merged to main actually reaches every repo
+# pinned to that tag. Deliberately manual — workflow_dispatch only, nothing
+# here runs on a push to main — because instant, unreviewed propagation to
+# every consumer is exactly what the pin exists to prevent. See README.md's
+# "pinned to a @v1-style tag" note for why the pin exists at all.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Floating tag to move to this commit (e.g. v1)
+        required: true
+        default: v1
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # workflow_dispatch can run from any branch or tag, and github.sha is that
+    # ref's head. Moving the tag from anywhere but main would ship unreviewed code.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      # Passed through env rather than expanded into the script text, so a
+      # crafted input can't inject shell before validation runs.
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Validate tag name
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+$ ]]; then
+            echo "::error::Expected a major-version tag like v1, got '$TAG'"
+            exit 1
+          fi
+
+      - name: Move the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if out=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" 2>&1); then
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/$TAG" \
+              -f sha="${{ github.sha }}" -F force=true
+          elif grep -q "HTTP 404" <<<"$out"; then
+            gh api -X POST "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" -f sha="${{ github.sha }}"
+          else
+            # Not a missing tag (403, rate limit, network): surface the real error.
+            echo "::error::Could not look up tag $TAG: $out"
+            exit 1
+          fi
