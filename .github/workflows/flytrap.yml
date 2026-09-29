@@ -1,0 +1,30 @@
+name: Flytrap
+
+# Comment @flytrap on a pull request to get a Review from
+# oak-wildwood/flytrap: a Verdict and summary, then an inline comment on each
+# Finding, with a suggested change where it has one. Only a collaborator with
+# write, maintain or admin permission can trigger it. Needs a
+# CLAUDE_CODE_OAUTH_TOKEN secret (the same one claude.yml uses) but not the
+# Claude GitHub App — Flytrap posts with this workflow's own github.token.
+#
+# claude-code-action skips runs whose workflow doesn't match the default
+# branch's copy, so a change to this file only takes effect once merged.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read # the Spec: the issues a pull request closes
+  pull-requests: write
+
+jobs:
+  review:
+    # A cheap pre-filter; the real trigger and permission checks run inside Flytrap.
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '@flytrap')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: oak-wildwood/flytrap@main
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
