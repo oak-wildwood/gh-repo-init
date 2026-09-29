@@ -40,10 +40,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --silent 2>/dev/null; then
+          if out=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" 2>&1); then
             gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/$TAG" \
               -f sha="${{ github.sha }}" -F force=true
-          else
+          elif grep -q "HTTP 404" <<<"$out"; then
             gh api -X POST "repos/${{ github.repository }}/git/refs" \
               -f ref="refs/tags/$TAG" -f sha="${{ github.sha }}"
+          else
+            # Not a missing tag (403, rate limit, network): surface the real error.
+            echo "::error::Could not look up tag $TAG: $out"
+            exit 1
           fi
