@@ -103,6 +103,13 @@ the PR title the commit subject — under a merge commit, or a message format th
 commits, a wrong title is untidy rather than permanent, and a check nobody needs is just a red X
 people learn to ignore. Fifteen lines of `grep`, no third-party action to pin.
 
+## Releasing a fix
+
+Merging to `main` here doesn't change anything for a repo pinned to `@v1` — that's the point of the
+pin. To roll a fix out, move the tag deliberately: `gh workflow run release.yml --ref main -f
+tag=v1`. It's `workflow_dispatch`-only on purpose, so a fix ships when you choose to ship it rather
+than the instant it merges.
+
 ## Why there's no skill or plugin here
 
 The script asks its own questions in plain shell prompts, which works for everyone — whichever

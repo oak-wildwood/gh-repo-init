@@ -1,0 +1,37 @@
+name: Release
+
+# Moves a floating major-version tag (e.g. v1) to point at the commit this
+# workflow runs from, so a fix merged to main actually reaches every repo
+# pinned to that tag. Deliberately manual — workflow_dispatch only, nothing
+# here runs on a push to main — because instant, unreviewed propagation to
+# every consumer is exactly what the pin exists to prevent. See README.md's
+# "pinned to a @v1-style tag" note for why the pin exists at all.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Floating tag to move to this commit (e.g. v1)
+        required: true
+        default: v1
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag name
+        run: |
+          if ! [[ "${{ inputs.tag }}" =~ ^v[0-9]+$ ]]; then
+            echo "::error::Expected a major-version tag like v1, got '${{ inputs.tag }}'"
+            exit 1
+          fi
+
+      - name: Move the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/${{ inputs.tag }}" \
+            -f sha="${{ github.sha }}" -F force=true
