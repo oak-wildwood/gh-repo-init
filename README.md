@@ -98,6 +98,16 @@ reusable `.github/workflows/code-review.yml`, pinned the same way as `claude.yml
 this one (its recommended answer is *no*) — pass `--with-code-review` too if you want it added
 non-interactively.
 
+**Flytrap, on request.** On by default. Adds `flytrap.yml`, which runs
+[Flytrap](https://github.com/oak-wildwood/flytrap) when a collaborator with write access comments
+`@flytrap` on a pull request: one comment-only review with a verdict, a summary, and an inline
+comment per finding, with a one-click suggested change where it has one. It needs the
+`CLAUDE_CODE_OAUTH_TOKEN` secret but not the Claude GitHub App, since it posts with the workflow's
+own `github.token`, so it's offered whether or not `claude.yml` is present. Read-only, and nothing
+runs it automatically. It only runs from the default branch's copy of the workflow, so merge it
+before trying it. Unlike the other workflows it points at `oak-wildwood/flytrap@main`, because
+Flytrap doesn't publish version tags yet.
+
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch
 commits, a wrong title is untidy rather than permanent, and a check nobody needs is just a red X
