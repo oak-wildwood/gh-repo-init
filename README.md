@@ -87,8 +87,8 @@ comment per finding, with a one-click suggested change where it has one. It need
 `CLAUDE_CODE_OAUTH_TOKEN` secret but not the Claude GitHub App, since it posts with the workflow's
 own `github.token`, so it's offered whether or not `claude.yml` is present. Read-only, and nothing
 runs it automatically. It only runs from the default branch's copy of the workflow, so merge it
-before trying it. Unlike the other workflows it points at `oak-wildwood/flytrap@main`, because
-Flytrap doesn't publish version tags yet.
+before trying it. Like the other workflows it's pinned to a `@v1` tag, so a Flytrap fix
+reaches your repo when a release is cut, not the moment it merges.
 
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch
