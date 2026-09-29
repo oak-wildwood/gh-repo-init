@@ -20,12 +20,19 @@ permissions:
 
 jobs:
   release:
+    # workflow_dispatch can run from any branch or tag, and github.sha is that
+    # ref's head. Moving the tag from anywhere but main would ship unreviewed code.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      # Passed through env rather than expanded into the script text, so a
+      # crafted input can't inject shell before validation runs.
+      TAG: ${{ inputs.tag }}
     steps:
       - name: Validate tag name
         run: |
-          if ! [[ "${{ inputs.tag }}" =~ ^v[0-9]+$ ]]; then
-            echo "::error::Expected a major-version tag like v1, got '${{ inputs.tag }}'"
+          if ! [[ "$TAG" =~ ^v[0-9]+$ ]]; then
+            echo "::error::Expected a major-version tag like v1, got '$TAG'"
             exit 1
           fi
 
@@ -33,5 +40,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/${{ inputs.tag }}" \
-            -f sha="${{ github.sha }}" -F force=true
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --silent 2>/dev/null; then
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/$TAG" \
+              -f sha="${{ github.sha }}" -F force=true
+          else
+            gh api -X POST "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" -f sha="${{ github.sha }}"
+          fi
