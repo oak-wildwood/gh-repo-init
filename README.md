@@ -88,7 +88,8 @@ comment per finding, with a one-click suggested change where it has one. It need
 own `github.token`, so it's offered whether or not `claude.yml` is present. Read-only, and nothing
 runs it automatically. It only runs from the default branch's copy of the workflow, so merge it
 before trying it. Like the other workflows it's pinned to a `@v1` tag, so a Flytrap fix
-reaches your repo when a release is cut, not the moment it merges.
+reaches your repo when a release is cut, not the moment it merges. Flytrap cuts its own `v1` releases, so nothing needs
+moving here when it ships one.
 
 **A conventional-commit check on pull request titles.** Only offered when your earlier answers made
 the PR title the commit subject — under a merge commit, or a message format that keeps the branch
