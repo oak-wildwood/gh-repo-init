@@ -56,7 +56,7 @@ runs:
         # `gh pr list` needs `pull-requests: read`, which this job doesn't
         # have. A pull request is also an issue, so the Issues API sees it
         # under the `issues: write` this job already has.
-        open_prs=$(gh api "repos/$REPO/issues" --paginate -f state=open -f per_page=100 \
+        open_prs=$(gh api "repos/$REPO/issues" --paginate --method GET -f state=open -f per_page=100 \
           --jq '[.[] | select(.pull_request) | {number, body, createdAt: .created_at}]' \
           | jq -s 'add // []')
 
