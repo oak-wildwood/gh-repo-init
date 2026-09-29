@@ -11,8 +11,12 @@ description: >-
   merges — without it, an issue whose PR is still open and unreviewed looks
   unclaimed again on the next scheduled run and gets a second PR opened
   against it. It goes through the Issues API rather than `gh pr list`
-  because a pull request is also an issue, and this job is only granted
-  `issues: write`. The picked issue gets `claude-in-progress` so nothing
+  because a pull request is also an issue and both live under one endpoint
+  there; the job still needs `pull-requests: read` explicitly, since a PR's
+  content is gated on that permission regardless of which endpoint reads
+  it — `issues: write` alone gets an empty result, not an error, which is
+  what silently broke this check before. The picked issue gets
+  `claude-in-progress` so nothing
   else grabs it; actions/nightly-run takes it off again. The Model Tier
   label picks the model (see ../lib/resolve-model.sh; no label means
   sonnet). model:fable issues are handed back for a local session instead

@@ -50,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      pull-requests: read
     outputs:
       issue_number: ${{ steps.pick.outputs.issue_number }}
       model: ${{ steps.pick.outputs.model }}
