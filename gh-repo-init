@@ -17,7 +17,6 @@ EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO=""
 DRY_RUN=false
 ASSUME_YES=false
-WITH_CODE_REVIEW=false
 
 # ---------------------------------------------------------------- output ---
 
@@ -44,9 +43,6 @@ ${BOLD}USAGE${RESET}
 ${BOLD}OPTIONS${RESET}
   -R, --repo OWNER/NAME   Target repo. Defaults to the current directory's remote.
   -y, --yes               Take the recommended answer to every question.
-      --with-code-review  Add the code-review action even under --yes, whose
-                           recommended answer is otherwise no (there's no
-                           other way to opt in non-interactively).
       --dry-run           Show what would change; touch nothing.
   -h, --help              Show this help.
   -v, --version           Show version.
@@ -71,7 +67,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -R|--repo)       REPO="${2:-}"; shift 2 ;;
     -y|--yes)        ASSUME_YES=true; shift ;;
-    --with-code-review) WITH_CODE_REVIEW=true; shift ;;
     --dry-run)       DRY_RUN=true; shift ;;
     -h|--help)       usage; exit 0 ;;
     -v|--version)    printf '%s\n' "$VERSION"; exit 0 ;;
@@ -324,7 +319,7 @@ fi
 
 head2 "Agent instruction files"
 want_agents=false; want_claude=false; want_workflow=false; want_gitignore=false
-want_prtitle=false; want_nightly=false; want_code_review=false; want_flytrap=false
+want_prtitle=false; want_nightly=false; want_flytrap=false
 in_worktree=false
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   in_worktree=true
@@ -349,20 +344,9 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     [ -n "$reply_cron" ] && nightly_cron="$reply_cron"
   fi
 
-  # Reuses claude.yml's GitHub App + CLAUDE_CODE_OAUTH_TOKEN too. Unlike the
-  # other two, this one is read-only (no Write/Edit, nothing pushes) — it's
-  # left out of the branch-protection nudge below on purpose.
-  if [ -e "$root/.github/workflows/code-review.yml" ]; then
-    skip "code-review.yml exists, leaving it alone"
-  elif [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
-    skip "no claude.yml yet — add the Claude Code GitHub workflow first to enable code review"
-  elif [ "$WITH_CODE_REVIEW" = true ] || ask_yn "Add a code-review action (mattpocock's two-axis Standards/Spec skill, run on request against a PR)?" "n"; then
-    want_code_review=true
-  fi
-
   # Needs only the CLAUDE_CODE_OAUTH_TOKEN secret, not the GitHub App, so it
-  # isn't gated on claude.yml. Read-only like code-review, and runs only when
-  # someone comments @flytrap, so usage stays bounded.
+  # isn't gated on claude.yml. Read-only, and runs only when someone comments
+  # @flytrap, so usage stays bounded.
   if [ -e "$root/.github/workflows/flytrap.yml" ]; then
     skip "flytrap.yml exists, leaving it alone"
   elif ask_yn "Add Flytrap (comment @flytrap on a PR for an inline-comment review)?" "y"; then
@@ -580,7 +564,6 @@ if [ "$in_worktree" = true ]; then
       ok "created .github/workflows/claude-nightly.yml"
     fi
   fi
-  [ "$want_code_review" = true ] && place "templates/workflows/code-review.yml" ".github/workflows/code-review.yml"
   [ "$want_flytrap" = true ]  && place "templates/workflows/flytrap.yml" ".github/workflows/flytrap.yml"
   [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
   [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
@@ -681,10 +664,6 @@ if [ "$want_nightly" = true ]; then
   printf '  → tag an issue claude-task to queue it for the next scheduled run,\n'
   printf '    or trigger a run now with workflow_dispatch (pass issue_number\n'
   printf '    to target one directly) to try it early.\n'
-fi
-if [ "$want_code_review" = true ]; then
-  printf '  → trigger it with: gh workflow run code-review.yml -f pr_number=N\n'
-  printf '    or by commenting "@review" on a pull request.\n'
 fi
 if [ "$want_flytrap" = true ]; then
   if [ "$want_workflow" != true ] && [ ! -e "$root/.github/workflows/claude.yml" ]; then
