@@ -23,5 +23,5 @@ case "$tier" in
   haiku) echo "claude-haiku-4-5-20251001" ;;
   opus) echo "claude-opus-5-5" ;;
   fable) echo "fable" ;;
-  *) echo "claude-sonnet-5" ;;
+  *) echo "claude-sonnet-5-5" ;;
 esac

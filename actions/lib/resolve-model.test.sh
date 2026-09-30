@@ -26,10 +26,10 @@ check() {
 
 check "haiku" "haiku" "claude-haiku-4-5-20251001"
 check "opus" "opus" "claude-opus-5-5"
-check "sonnet" "sonnet" "claude-sonnet-5"
+check "sonnet" "sonnet" "claude-sonnet-5-5"
 check "fable" "fable" "fable"
-check "unknown tier falls back to sonnet" "garbage" "claude-sonnet-5"
-check "empty tier falls back to sonnet" "" "claude-sonnet-5"
+check "unknown tier falls back to sonnet" "garbage" "claude-sonnet-5-5"
+check "empty tier falls back to sonnet" "" "claude-sonnet-5-5"
 check "case insensitive" "HAIKU" "claude-haiku-4-5-20251001"
 
 if [ "$fail" -ne 0 ]; then

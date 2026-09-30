@@ -31,7 +31,7 @@ check() {
 success_file="$tmp/success.json"
 cat >"$success_file" <<'EOF'
 [
-  {"type": "system", "subtype": "init", "model": "claude-sonnet-5"},
+  {"type": "system", "subtype": "init", "model": "claude-sonnet-5-5"},
   {"type": "assistant", "message": {"content": [{"type": "text", "text": "working..."}]}},
   {
     "type": "result",
@@ -47,8 +47,8 @@ cat >"$success_file" <<'EOF'
 EOF
 
 check "success run" \
-  "$success_file" "claude-sonnet-5" "success" \
-  "Run Report: claude-sonnet-5 · 15400 tokens · 3m 12s · success"
+  "$success_file" "claude-sonnet-5-5" "success" \
+  "Run Report: claude-sonnet-5-5 · 15400 tokens · 3m 12s · success"
 
 short_file="$tmp/short.json"
 cat >"$short_file" <<'EOF'
@@ -83,30 +83,30 @@ check "failed run that still wrote a result" \
   "Run Report: claude-opus-5-5 · 510 tokens · 1m 0s · failure"
 
 check "empty path" \
-  "" "claude-sonnet-5" "failure" \
+  "" "claude-sonnet-5-5" "failure" \
   "Run Report: unavailable · failure"
 
 check "missing file" \
-  "$tmp/does-not-exist.json" "claude-sonnet-5" "failure" \
+  "$tmp/does-not-exist.json" "claude-sonnet-5-5" "failure" \
   "Run Report: unavailable · failure"
 
 empty_file="$tmp/empty.json"
 : >"$empty_file"
 
 check "empty file" \
-  "$empty_file" "claude-sonnet-5" "failure" \
+  "$empty_file" "claude-sonnet-5-5" "failure" \
   "Run Report: unavailable · failure"
 
 no_result_file="$tmp/no-result.json"
 cat >"$no_result_file" <<'EOF'
 [
-  {"type": "system", "subtype": "init", "model": "claude-sonnet-5"},
+  {"type": "system", "subtype": "init", "model": "claude-sonnet-5-5"},
   {"type": "assistant", "message": {"content": [{"type": "text", "text": "crashed mid-turn"}]}}
 ]
 EOF
 
 check "no result entry (crash before completion)" \
-  "$no_result_file" "claude-sonnet-5" "failure" \
+  "$no_result_file" "claude-sonnet-5-5" "failure" \
   "Run Report: unavailable · failure"
 
 if [ "$fail" -ne 0 ]; then
