@@ -108,8 +108,23 @@ push "$work" HEAD:main
 check "a GitHub merge, then a push" "$sha" "$(pushes "$BOT")"
 
 fresh
+# A PR whose branch holds the bot's commits (an earlier Nightly's), merged with a merge commit.
+git -C "$other" checkout -q -b claude/issue-2
+commit "$other" "$BOT" "earlier nightly work"
+git -C "$other" checkout -q main
+GIT_COMMITTER_EMAIL="$GITHUB" GIT_COMMITTER_NAME=t GIT_AUTHOR_EMAIL="$GITHUB" GIT_AUTHOR_NAME=t \
+  git -C "$other" merge -q --no-ff --no-edit claude/issue-2
+push "$other" main
+check "a PR merged with a merge commit during the run" "" "$(pushes "$BOT")"
+
+fresh
 code=0
 pushes "" 2>/dev/null || code=$?
 check "no committer email" "2" "$code"
+
+fresh
+code=0
+(cd "$work" && sh "$script" 0000000000000000000000000000000000000000 "$before" "$BOT") 2>/dev/null || code=$?
+check "an unknown commit is an error, not an empty answer" "3" "$code"
 
 exit "$fail"

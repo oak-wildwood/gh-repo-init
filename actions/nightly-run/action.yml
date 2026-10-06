@@ -46,7 +46,9 @@ runs:
         chmod +x "$hooks/pre-push"
         git config core.hooksPath "$hooks"
         echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
-        echo "default_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        # The default branch's tip, not the checked-out HEAD: a run dispatched from another branch
+        # would otherwise compare against history that is not the default branch's.
+        echo "default_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$default_branch" -q .sha)" >> "$GITHUB_OUTPUT"
 
     - name: Run Claude Code
       id: claude
@@ -89,17 +91,23 @@ runs:
         DEFAULT_BRANCH: ${{ steps.guard.outputs.default_branch }}
         BEFORE: ${{ steps.guard.outputs.default_sha }}
       run: |
-        # Looks at the commits that landed on the default branch during the run and flags those made
-        # by the run's own git identity. A merge made during the run is committed by GitHub, and
-        # upstream commits the agent pulled into its branch are GitHub's too, so neither counts; a
-        # push from a branch or a detached HEAD does. See actions/lib/default-branch-pushes.sh.
+        # Looks at the commits that landed on the default branch during the run (its first-parent
+        # line) and flags those made by the run's own git identity. A PR merged during the run, by
+        # squash or merge commit, does not count, nor do upstream commits the agent pulled into its
+        # branch; a push from a branch or a detached HEAD does. See actions/lib/default-branch-pushes.sh.
         git fetch -q --depth=50 origin "$DEFAULT_BRANCH"
+        after=$(git rev-parse FETCH_HEAD)
+        # The tip from before the run may be older than that shallow history: fetch it by name.
+        git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$BEFORE" || true
         email=$(git config user.email || true)
         if [ -z "$email" ]; then
           echo "::warning::This run has no git identity, so the check cannot tell its commits from anyone else's on $DEFAULT_BRANCH." >&2
           exit 0
         fi
-        pushed=$("$GITHUB_ACTION_PATH/../lib/default-branch-pushes.sh" "$BEFORE" "$(git rev-parse FETCH_HEAD)" "$email")
+        if ! pushed=$("$GITHUB_ACTION_PATH/../lib/default-branch-pushes.sh" "$BEFORE" "$after" "$email"); then
+          echo "::warning::Could not check whether this run's commits reached $DEFAULT_BRANCH (see above)." >&2
+          exit 0
+        fi
         if [ -n "$pushed" ]; then
           echo "::error::This run's commits are on $DEFAULT_BRANCH: $(tr '\n' ' ' <<<"$pushed") The Nightly must deliver work as a pull request." >&2
           exit 1
