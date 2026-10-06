@@ -89,15 +89,19 @@ runs:
         DEFAULT_BRANCH: ${{ steps.guard.outputs.default_branch }}
         BEFORE: ${{ steps.guard.outputs.default_sha }}
       run: |
-        # A merge Oak makes during the run moves the branch too, so look for this run's own commits
-        # there rather than at whether the branch moved. A squash-merged PR never contains them.
+        # Looks at the commits that landed on the default branch during the run and flags those made
+        # by the run's own git identity. A merge made during the run is committed by GitHub, and
+        # upstream commits the agent pulled into its branch are GitHub's too, so neither counts; a
+        # push from a branch or a detached HEAD does. See actions/lib/default-branch-pushes.sh.
         git fetch -q --depth=50 origin "$DEFAULT_BRANCH"
-        pushed=""
-        for commit in $(git rev-list --branches --not "$BEFORE"); do
-          if git merge-base --is-ancestor "$commit" FETCH_HEAD; then pushed="$pushed $commit"; fi
-        done
+        email=$(git config user.email || true)
+        if [ -z "$email" ]; then
+          echo "::warning::This run has no git identity, so the check cannot tell its commits from anyone else's on $DEFAULT_BRANCH." >&2
+          exit 0
+        fi
+        pushed=$("$GITHUB_ACTION_PATH/../lib/default-branch-pushes.sh" "$BEFORE" "$(git rev-parse FETCH_HEAD)" "$email")
         if [ -n "$pushed" ]; then
-          echo "::error::This run's commits are on $DEFAULT_BRANCH:$pushed. The Nightly must deliver work as a pull request." >&2
+          echo "::error::This run's commits are on $DEFAULT_BRANCH: $(tr '\n' ' ' <<<"$pushed") The Nightly must deliver work as a pull request." >&2
           exit 1
         fi
 
