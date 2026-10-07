@@ -90,15 +90,25 @@ runs:
       env:
         DEFAULT_BRANCH: ${{ steps.guard.outputs.default_branch }}
         BEFORE: ${{ steps.guard.outputs.default_sha }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         # Looks at the commits that landed on the default branch during the run (its first-parent
         # line) and flags those made by the run's own git identity. A PR merged during the run, by
         # squash or merge commit, does not count, nor do upstream commits the agent pulled into its
         # branch; a push from a branch or a detached HEAD does. See actions/lib/default-branch-pushes.sh.
-        git fetch -q --depth=50 origin "$DEFAULT_BRANCH"
+        #
+        # The fetches use the job's own token, not `origin`: anthropics/claude-code-action rewrites
+        # origin to carry its own short-lived app token and revokes it when it finishes, so a plain
+        # `git fetch origin` here is refused ("Invalid username or token"). The token goes in the
+        # URL argument, which is never written to the checkout's config.
+        remote="https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
+        if ! git fetch -q --depth=50 "$remote" "$DEFAULT_BRANCH"; then
+          echo "::warning::Could not fetch $DEFAULT_BRANCH, so the check cannot tell whether this run's commits reached it." >&2
+          exit 0
+        fi
         after=$(git rev-parse FETCH_HEAD)
         # The tip from before the run may be older than that shallow history: fetch it by name.
-        git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$BEFORE" || true
+        git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q --depth=1 "$remote" "$BEFORE" || true
         email=$(git config user.email || true)
         if [ -z "$email" ]; then
           echo "::warning::This run has no git identity, so the check cannot tell its commits from anyone else's on $DEFAULT_BRANCH." >&2
