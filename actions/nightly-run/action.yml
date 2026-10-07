@@ -102,9 +102,11 @@ runs:
         # `git fetch origin` here is refused ("Invalid username or token"). The token goes in the
         # URL argument, which is never written to the checkout's config.
         remote="https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
+        # A failed fetch fails the step: this check backs up a guard that can be wrong, so when it
+        # cannot see the default branch it must not report that all is well.
         if ! git fetch -q --depth=50 "$remote" "$DEFAULT_BRANCH"; then
-          echo "::warning::Could not fetch $DEFAULT_BRANCH, so the check cannot tell whether this run's commits reached it." >&2
-          exit 0
+          echo "::error::Could not fetch $DEFAULT_BRANCH, so the check cannot tell whether this run's commits reached it." >&2
+          exit 1
         fi
         after=$(git rev-parse FETCH_HEAD)
         # The tip from before the run may be older than that shallow history: fetch it by name.
