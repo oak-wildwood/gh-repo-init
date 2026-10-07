@@ -22,6 +22,34 @@ inputs:
 runs:
   using: composite
   steps:
+    # The prompt says never to push the default branch, but a model can still get it wrong, and
+    # without branch protection (a paid feature on private repos) nothing on GitHub would stop it.
+    # So the checkout refuses such a push itself, and a later step fails the run if one got through.
+    - name: Refuse pushes to the default branch
+      id: guard
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        default_branch=$(gh api "repos/$GITHUB_REPOSITORY" -q .default_branch)
+        hooks="$RUNNER_TEMP/nightly-hooks"
+        mkdir -p "$hooks"
+        cat > "$hooks/pre-push" <<HOOK
+        #!/usr/bin/env bash
+        while read -r _local_ref _local_sha remote_ref _remote_sha; do
+          if [ "\$remote_ref" = "refs/heads/$default_branch" ]; then
+            echo "Refusing to push to $default_branch: the Nightly pushes its own branch and opens a pull request." >&2
+            exit 1
+          fi
+        done
+        HOOK
+        chmod +x "$hooks/pre-push"
+        git config core.hooksPath "$hooks"
+        echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+        # The default branch's tip, not the checked-out HEAD: a run dispatched from another branch
+        # would otherwise compare against history that is not the default branch's.
+        echo "default_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$default_branch" -q .sha)" >> "$GITHUB_OUTPUT"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
@@ -34,7 +62,9 @@ runs:
         prompt: |
           Work autonomously on issue #${{ inputs.issue_number }}.
           Read AGENTS.md (and any other project instructions) first, and follow them.
-          Open a pull request when done, following this project's PR title convention.
+          Never commit to or push the default branch (${{ steps.guard.outputs.default_branch }}). Before you change any file, create a branch for this work with `git checkout -b claude/issue-${{ inputs.issue_number }}`, and commit only there.
+          When done, push that branch with `git push -u origin HEAD` and open a pull request with `gh pr create`, following this project's PR title convention. A pull request is the only way to deliver work: a run that changes files and ends without one has failed.
+          A push to ${{ steps.guard.outputs.default_branch }} is refused on purpose. If you see that refusal, create your branch and push it instead.
           The PR body MUST include the line "Closes #${{ inputs.issue_number }}" so the issue closes when the PR merges.
           Never modify anything under .github/workflows.
 
@@ -51,6 +81,35 @@ runs:
       run: |
         if [ -z "$EXECUTION_FILE" ] || [ -z "$CONCLUSION" ]; then
           echo "::error::The Claude step reported success but produced no execution_file/conclusion — it likely skipped itself (e.g. a workflow-validation mismatch between the caller's pinned ref and this repo's default branch) rather than actually running." >&2
+          exit 1
+        fi
+
+    - name: Fail the job if this run's commits reached the default branch
+      if: always() && steps.guard.outcome == 'success'
+      shell: bash
+      env:
+        DEFAULT_BRANCH: ${{ steps.guard.outputs.default_branch }}
+        BEFORE: ${{ steps.guard.outputs.default_sha }}
+      run: |
+        # Looks at the commits that landed on the default branch during the run (its first-parent
+        # line) and flags those made by the run's own git identity. A PR merged during the run, by
+        # squash or merge commit, does not count, nor do upstream commits the agent pulled into its
+        # branch; a push from a branch or a detached HEAD does. See actions/lib/default-branch-pushes.sh.
+        git fetch -q --depth=50 origin "$DEFAULT_BRANCH"
+        after=$(git rev-parse FETCH_HEAD)
+        # The tip from before the run may be older than that shallow history: fetch it by name.
+        git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$BEFORE" || true
+        email=$(git config user.email || true)
+        if [ -z "$email" ]; then
+          echo "::warning::This run has no git identity, so the check cannot tell its commits from anyone else's on $DEFAULT_BRANCH." >&2
+          exit 0
+        fi
+        if ! pushed=$("$GITHUB_ACTION_PATH/../lib/default-branch-pushes.sh" "$BEFORE" "$after" "$email"); then
+          echo "::warning::Could not check whether this run's commits reached $DEFAULT_BRANCH (see above)." >&2
+          exit 0
+        fi
+        if [ -n "$pushed" ]; then
+          echo "::error::This run's commits are on $DEFAULT_BRANCH: $(tr '\n' ' ' <<<"$pushed") The Nightly must deliver work as a pull request." >&2
           exit 1
         fi
 
