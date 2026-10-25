@@ -75,7 +75,11 @@ back for a local session instead), and always opens a pull request for review ra
 anything itself. `claude-nightly.yml` is a thin caller into this repo's reusable
 `.github/workflows/nightly.yml`, pinned the same way as `claude.yml`. Its default `--allowedTools`
 ships with `npm` as a placeholder — override the `allowed_tools` input for whatever the project
-actually uses to install and test.
+actually uses to install and test. `allowed_tools` only pre-approves tools, so the nightly also
+passes `--disallowedTools` for subagents (`Agent`), `ScheduleWakeup`, `CronCreate` and `Monitor`.
+Those all hand work off and wait for a later notification, and a headless run ends as soon as
+the agent ends its turn, so that notification never arrives. Issues that need parallel research
+belong in a cloud session (`claude --cloud`), not the nightly.
 
 Adding the nightly cron creates the standard label set if any are missing: `claude-task`,
 `claude-in-progress`, `human-task`, and the four `model:*` tier labels.

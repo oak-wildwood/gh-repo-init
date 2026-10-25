@@ -64,7 +64,7 @@ runs:
           Read AGENTS.md (and any other project instructions) first, and follow them.
           Never commit to or push the default branch (${{ steps.guard.outputs.default_branch }}). Before you change any file, create a branch for this work with `git checkout -b claude/issue-${{ inputs.issue_number }}`, and commit only there.
           When done, push that branch with `git push -u origin HEAD` and open a pull request with `gh pr create`, following this project's PR title convention. A pull request is the only way to deliver work: a run that changes files and ends without one has failed.
-          You are running unattended, and this session ends the moment you end your turn. Nothing reports back after that, so never end a turn to wait for something. Don't start background agents or background commands. If you use subagents, run them in the foreground and wait for their results before you continue. Research tasks follow the same rule: write up the findings, commit them, and open the PR in this run.
+          You are running unattended, and this session ends the moment you end your turn. Nothing reports back after that, so never end a turn to wait for something. Subagents and scheduled wakeups aren't available here, and Bash commands must not run in the background: do all the work yourself, in this session. Research tasks follow the same rule: write up the findings, commit them, and open the PR in this run.
           A push to ${{ steps.guard.outputs.default_branch }} is refused on purpose. If you see that refusal, create your branch and push it instead.
           The PR body MUST include the line "Closes #${{ inputs.issue_number }}" so the issue closes when the PR merges.
           Never modify anything under .github/workflows.
@@ -72,6 +72,7 @@ runs:
         claude_args: |
           --model ${{ inputs.model }}
           --allowedTools "${{ inputs.allowed_tools }}"
+          --disallowedTools "Agent,Task,ScheduleWakeup,CronCreate,Monitor"
 
     - name: Fail the job if the Claude step was skipped
       if: steps.claude.outcome == 'success'
