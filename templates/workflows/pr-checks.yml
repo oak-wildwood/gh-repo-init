@@ -1,0 +1,38 @@
+name: PR checks
+
+# A starting point for the checks that have to pass before a pull request merges. gh-repo-init
+# can't know how this project installs, lints, tests or builds, so the last step fails on purpose
+# until you replace it with your own commands. A skeleton that passed would be a check nobody
+# was running.
+
+on:
+  pull_request:
+    # Edit `main` if the default branch has another name.
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# Every run is billed (a full minute at least), and a newer push to the same pull request makes a
+# run that is still going pointless. Cancel the older one so a burst of pushes costs one run, not
+# one each. This is per pull request, so two different pull requests never cancel each other.
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      # Set up the toolchain here, for example actions/setup-node with `cache: npm`, so installs
+      # are cached between runs.
+
+      - name: Run the checks
+        run: |
+          echo "Replace this step with this project's install, lint, test and build commands."
+          exit 1

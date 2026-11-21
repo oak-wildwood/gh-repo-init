@@ -378,6 +378,14 @@ grep -q '.claude/settings.local.json' "$root/.gitignore" 2>/dev/null \
   && skip ".gitignore already covers agent-local files" \
   || { ask_yn "Add .gitignore entries for agent-local files?" "y" && want_gitignore=true; }
 
+head2 "Pull request checks"
+want_prchecks=false
+if [ -e "$root/.github/workflows/pr-checks.yml" ]; then
+  skip "pr-checks.yml exists, leaving it alone"
+elif ask_yn "Add a PR checks workflow skeleton (cancels superseded runs to save Actions minutes)?" "n"; then
+  want_prchecks=true
+fi
+
 head2 "Public site deploy"
 want_deploy=false; want_vercel=false
 if [ -e "$root/.github/workflows/deploy.yml" ]; then
@@ -556,6 +564,7 @@ if [ "$want_nightly" = true ]; then
 fi
 [ "$want_flytrap" = true ]  && place "templates/workflows/flytrap.yml" ".github/workflows/flytrap.yml"
 [ "$want_prtitle" = true ]  && place "templates/workflows/pr-title.yml" ".github/workflows/pr-title.yml"
+[ "$want_prchecks" = true ] && place "templates/workflows/pr-checks.yml" ".github/workflows/pr-checks.yml"
 [ "$want_deploy" = true ]   && place "templates/workflows/deploy.yml" ".github/workflows/deploy.yml"
 [ "$want_vercel" = true ]   && place "templates/vercel.json" "vercel.json"
 if [ "$want_gitignore" = true ]; then
@@ -664,6 +673,14 @@ if [ "$want_prtitle" = true ]; then
   printf '  → the title check allows feat, fix, refactor, test, docs, ci and\n'
   printf '    chore. Edit TYPES in .github/workflows/pr-title.yml to change that,\n'
   printf '    and say the same thing in AGENTS.md so the two agree.\n'
+fi
+if [ "$want_prchecks" = true ]; then
+  printf '  → pr-checks.yml fails on purpose until you replace its last step\n'
+  printf '    with this project'"'"'s install, lint, test and build commands, and\n'
+  printf '    add any toolchain setup above it. It cancels a run when a newer\n'
+  printf '    push lands on the same pull request, so a burst of pushes costs\n'
+  printf '    one run of Actions minutes. Edit branches: if the default branch\n'
+  printf '    is not called main.\n'
 fi
 if [ "$want_deploy" = true ]; then
   printf '  → enable Pages: Settings → Pages → Source: GitHub Actions. The\n'

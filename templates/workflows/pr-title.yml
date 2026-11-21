@@ -8,15 +8,22 @@ name: PR title
 
 on:
   pull_request:
-    # `edited` matters: it is what fires when someone fixes a rejected title,
-    # and without it the check would stay red until an unrelated push.
-    types: [opened, edited, reopened, synchronize]
+    # `edited` matters: it is what fires when someone fixes a rejected title.
+    # No `synchronize`: a push can't change the title, and every run is billed
+    # as a full minute. The catch is that a push leaves the new head commit
+    # with no title check, so a red one drops out of the checks list until the
+    # title is edited. That is also why this should not be a *required* check:
+    # a required one would block the merge until someone edits the title.
+    types: [opened, edited, reopened]
 
 permissions:
   contents: read
 
 jobs:
   conventional:
+    # `edited` also fires for body and base-branch edits; skip those (a skipped
+    # job costs nothing) unless the title is what changed.
+    if: github.event.action != 'edited' || github.event.changes.title
     runs-on: ubuntu-latest
     steps:
       - name: Check the title is a conventional commit
