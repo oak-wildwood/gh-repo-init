@@ -100,6 +100,12 @@ the PR title the commit subject — under a merge commit, or a message format th
 commits, a wrong title is untidy rather than permanent, and a check nobody needs is just a red X
 people learn to ignore. Fifteen lines of `grep`, no third-party action to pin.
 
+**A PR checks skeleton, on request.** Off by default. Adds `pr-checks.yml`, which runs on every push to
+a pull request and cancels the run still going for the previous commit, so a burst of pushes costs one
+run of Actions minutes instead of one each. It can't know how your project installs, lints, tests or
+builds, so its last step fails on purpose until you replace it. A skeleton that passed would be a
+check nobody was running.
+
 ## Releasing a fix
 
 Merging to `main` here doesn't change anything for a repo pinned to `@v1` — that's the point of the
@@ -107,6 +113,23 @@ pin. To roll a fix out, move the tag deliberately: `gh workflow run release.yml 
 tag=v1`. It's `workflow_dispatch`-only on purpose, so a fix ships when you choose to ship it rather
 than the instant it merges. The workflow skips itself on any ref other than `main`, and creates the
 tag if it doesn't exist yet (for a new major version like `v2`).
+
+## Fixes to the templates reach new repos only
+
+The `@v1` workflows (`claude.yml`, `claude-nightly.yml`, `flytrap.yml`) pick up a fix when you move
+the tag. Everything else is a template: it's copied once and never overwritten, so a fix to a template
+reaches repositories created afterward and nothing that already has the file. To adopt one in an
+existing repo, copy the change by hand. The one that saves the most Actions minutes is cancelling
+superseded runs. Add this to any workflow that runs on `pull_request`, but not to a deploy or release
+workflow, where cancelling partway can leave things half done:
+
+```yaml
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+```
+
+The other is `pr-title.yml`: drop `synchronize` from its `types`, since a push can't change a title.
 
 ## Why there's no skill or plugin here
 
